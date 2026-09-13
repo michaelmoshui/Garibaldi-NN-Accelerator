@@ -1,1 +1,11 @@
-.cursor/*
+# Python
+.venv/
+
+# data
+scripts/data/
+
+# model generation
+src/software/models/
+
+# MakeFile Sentinels
+.*_done

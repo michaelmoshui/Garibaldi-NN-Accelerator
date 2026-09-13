@@ -1,0 +1,39 @@
+---
+description: Core term-project guidelines for quantized NN acceleration on RV64IMC / CV-Wally
+alwaysApply: true
+---
+
+# Project Guidelines (always apply)
+
+Full source of truth: `project_guidelines.md`. Follow it for all design, implementation, and evaluation work.
+
+## Scope
+
+- Bare-metal **RV64IMC** on **CV-Wally**; no FP/vector hardware.
+- Quantized edge-AI: **W8A8** required; **W8A16** optional.
+- Primary model ~2–12M params, ~0.2–2 GMAC/inference (prefer Transformer/hybrid).
+- Offline model→static C; no general ML runtime required.
+
+## Required pipeline
+
+1. Bare-metal baseline kernels (GEMM/FC, conv if needed, requant, nonlinear/norm, static alloc).
+2. Spike (or equivalent) workload characterization → identify ≥3 bottlenecks from measurements.
+3. Minimum ISA: packed **Xqmac8** (8× INT8 MAC on packed 64-bit) + **requantization** instruction.
+4. Implement in Spike, modify kernels, verify vs reference, measure instruction reduction.
+5. Distinguish **ISA** vs **microarchitectural** gains; evaluate B0 / B1 / X1 (/ X2) as in guidelines.
+6. At least one kernel on CV-Wally RTL; area via Synopsys DC or RTL Architect + SAED 32/28nm.
+7. Prefer metric: **speedup / area**. Extensions only after Xqmac/requant bottlenecks are measured.
+
+## Success bars
+
+- Functional: match reference; Xqmac directed+random tests; no unintended FP.
+- Performance: ≥2× dyn. insn reduction (major GEMM/FC) **or** ≥2× kernel cycles **or** ≥1.5× e2e; else explain bottleneck.
+- Coverage: microbench + 2 major ops + full model or one Transformer/CNN block.
+
+## Process & deliverables mindset
+
+`measurement → architecture proposal → implementation → evaluation`
+
+Report must answer: bottleneck → which feature → how much perf → hardware cost → next bottleneck.
+
+Repo layout preference: `README.md`, `docs/`, `experiments/`, `results/`, `scripts/`, `src/`, plus `DESIGN.md`, `EXPERIMENTS.md`, `AI_USAGE.md`.

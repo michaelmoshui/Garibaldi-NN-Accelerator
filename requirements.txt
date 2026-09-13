@@ -1,0 +1,11 @@
+# Dependencies for the Garibaldi pipeline scripts.
+
+# convert_to_tflite.py — PyTorch -> INT8 LiteRT
+timm>=1.0.0
+torch>=2.4.0
+torchao>=0.7.0
+pillow>=10.0.0
+litert-torch>=0.9.0
+
+# inspect_tflite.py + tflite_to_c.py — TFLite loading and C generation
+ai-edge-litert>=1.0.0
