@@ -20,20 +20,23 @@ VENV_PIP    := $(VENV_BIN)/pip
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-REQS        := requirements.txt
-CALIB_DIR   := scripts/data/activation_calibration
-MODEL_OUT   := src/software/model/efficientformer_l1_int8.tflite
+REQS            := requirements.txt
+
+# Pre-quantized W8A8 INT8 TFLite model fetched directly from HuggingFace.
+# litert-community/resnet18 — resnet18_int8_channelwise.tflite
+#   Weights:     INT8, symmetric per-channel
+#   Activations: INT8, asymmetric  (true W8A8 — no calibration needed)
+MODEL_OUT       := src/software/model/resnet18_int8_channelwise.tflite
 MODEL_GEN_DIR   := src/software/model
 
 # Sentinel files (touched after each step succeeds; avoids redundant re-runs)
-SETUP_SENTINEL   := .venv/.setup_done
-CALIB_SENTINEL   := $(CALIB_DIR)/.fetch_done
-MODEL_GEN_SENTINEL   := $(MODEL_GEN_DIR)/.model_gen_done
+SETUP_SENTINEL     := .venv/.setup_done
+MODEL_GEN_SENTINEL := $(MODEL_GEN_DIR)/.model_gen_done
 
 # ---------------------------------------------------------------------------
 # Phony targets
 # ---------------------------------------------------------------------------
-.PHONY: all setup calibration convert inspect model_gen clean help
+.PHONY: all setup fetch inspect model_gen clean help
 
 ## Default: run the full pipeline end-to-end
 all: model_gen
@@ -53,39 +56,32 @@ $(SETUP_SENTINEL): $(REQS)
 	@echo "[ok] Python environment ready."
 
 # ---------------------------------------------------------------------------
-# 2. Fetch calibration images (Imagenette subset of ImageNet)
+# 2. Download the pre-quantized TFLite model from HuggingFace
 # ---------------------------------------------------------------------------
-calibration: $(CALIB_SENTINEL)
+fetch: $(MODEL_OUT)
 
-$(CALIB_SENTINEL): $(SETUP_SENTINEL) scripts/fetch_calibration_images.py
-	@echo "[calibration] Fetching calibration images..."
-	$(VENV_PYTHON) scripts/fetch_calibration_images.py
-	@echo "fetch done" > $(CALIB_SENTINEL)
-	@echo "[ok] Calibration images ready in $(CALIB_DIR)."
-
-# ---------------------------------------------------------------------------
-# 3. Convert EfficientFormer-L1 to INT8 TFLite
-# ---------------------------------------------------------------------------
-convert: $(MODEL_OUT)
-
-$(MODEL_OUT): $(CALIB_SENTINEL) scripts/convert_to_tflite.py
-	@echo "[convert] Running PyTorch → INT8 LiteRT conversion..."
-	$(VENV_PYTHON) scripts/convert_to_tflite.py
-	@echo "[ok] Model written to $(MODEL_OUT)."
+$(MODEL_OUT): $(SETUP_SENTINEL) scripts/fetch_model.py
+	@echo "[fetch] Downloading resnet18_int8_channelwise.tflite from HuggingFace..."
+	$(VENV_PYTHON) scripts/fetch_model.py
+	@echo "[ok] Model ready at $(MODEL_OUT)."
 
 # ---------------------------------------------------------------------------
-# 4. (Optional) Inspect the TFLite model — op inventory + tensor summary
+# 3. (Optional) Inspect the TFLite model — op inventory + tensor summary
 # ---------------------------------------------------------------------------
 inspect: $(MODEL_OUT) $(SETUP_SENTINEL)
 	@echo "[inspect] Printing op inventory and tensor summary..."
 	$(VENV_PYTHON) scripts/inspect_tflite.py --model $(MODEL_OUT)
 
 # ---------------------------------------------------------------------------
-# 5. Generate static C source files from the TFLite model
+# 4. Generate static C source files from the TFLite model
+#    inspect_tflite.py runs first so the op inventory is visible in the log
+#    and tflite_to_c.py dynamically filters OP_KERNEL to only present ops.
 # ---------------------------------------------------------------------------
 model_gen: $(MODEL_GEN_SENTINEL)
 
-$(MODEL_GEN_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/tflite_to_c.py
+$(MODEL_GEN_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/inspect_tflite.py scripts/tflite_to_c.py
+	@echo "[inspect] Op inventory for $(MODEL_OUT)..."
+	$(VENV_PYTHON) scripts/inspect_tflite.py --model $(MODEL_OUT)
 	@echo "[model_gen] Generating ISA-independent C from $(MODEL_OUT)..."
 	$(VENV_PYTHON) scripts/tflite_to_c.py --model $(MODEL_OUT)
 	@echo "model_gen done" > $(MODEL_GEN_SENTINEL)
@@ -99,11 +95,14 @@ clean:
 
 help:
 	@echo ""
-	@echo "  make setup        — create .venv and install requirements"
-	@echo "  make calibration  — fetch 100 Imagenette calibration images"
-	@echo "  make convert      — quantise + export INT8 TFLite model"
-	@echo "  make inspect      — print op inventory + tensor summary (optional)"
-	@echo "  make model_gen        — generate static C from the TFLite model"
-	@echo "  make all          — run the full pipeline (default)"
-	@echo "  make clean        — remove venv, cached data, model outputs, C sources"
+	@echo "  make setup      — create .venv and install requirements"
+	@echo "  make fetch      — download resnet18_int8_channelwise.tflite from HuggingFace"
+	@echo "  make inspect    — print op inventory + tensor summary (optional)"
+	@echo "  make model_gen  — generate static C from the TFLite model"
+	@echo "  make all        — run the full pipeline (default)"
+	@echo "  make clean      — remove venv, model outputs, generated C sources"
+	@echo ""
+	@echo "  Model: litert-community/resnet18 / resnet18_int8_channelwise.tflite"
+	@echo "         W8A8: weights INT8 per-channel symmetric,"
+	@echo "               activations INT8 asymmetric."
 	@echo ""

@@ -12,14 +12,11 @@ Steps:
                         and a constants-vs-activations count.
 
 Usage:
-    python scripts/inspect_tflite.py
-    python scripts/inspect_tflite.py --model src/software/model/efficientformer_l1_int8.tflite
+    python scripts/inspect_tflite.py --model <path/to/model.tflite>
 """
 
 import argparse
 from collections import Counter
-
-DEFAULT_MODEL = "src/software/model/efficientformer_l1_int8.tflite"
 
 
 def load(model_path: str):
@@ -48,10 +45,13 @@ def op_inventory(interp) -> list:
     details = {d["index"]: d for d in interp.get_tensor_details()}
     for op in ops:
         outs = op["outputs"]
-        out_shape = list(details[outs[0]]["shape"]) if outs else []
+        # outs is a numpy array — use len(), not truthiness (multi-element is ambiguous)
+        out_shape = [int(x) for x in details[int(outs[0])]["shape"]] if len(outs) else []
         print(
             f"  #{op['index']:<3} {op['op_name']:<20} "
-            f"in={list(op['inputs'])} out={list(op['outputs'])} out_shape={out_shape}"
+            f"in={[int(x) for x in op['inputs']]} "
+            f"out={[int(x) for x in op['outputs']]} "
+            f"out_shape={out_shape}"
         )
     return ops
 
@@ -82,7 +82,7 @@ def tensor_summary(interp) -> None:
             else f"{nscale} per-ch scales" if nscale > 1
             else "no-quant"
         )
-        zp_str = f"zp={zps[0]}" if zps else "zp=-"
+        zp_str = f"zp={int(zps[0])}" if len(zps) else "zp=-"
         kind   = "const" if is_const else "act"
         print(
             f"  [{t['index']:>3}] {kind:<5} {str(list(t['shape'])):<20} "
@@ -97,7 +97,7 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--model", default=DEFAULT_MODEL, help="path to the .tflite file")
+    ap.add_argument("--model", required=True, help="path to the .tflite file")
     args = ap.parse_args()
 
     interp = load(args.model)
