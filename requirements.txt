@@ -3,5 +3,8 @@
 # fetch_model.py — download pre-quantized TFLite models from HuggingFace
 huggingface_hub>=0.23.0
 
-# inspect_tflite.py + tflite_to_c.py — TFLite loading and C generation
+# inspect_tflite.py — TFLite loading / op inventory
 ai-edge-litert>=1.0.0
+
+# gen_tflm_workload.py — tflite-micro's op-resolver generator template engine
+mako

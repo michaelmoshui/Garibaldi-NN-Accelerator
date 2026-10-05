@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Inspect an INT8 LiteRT/TFLite model: operator inventory + tensor/quant summary.
 
-Useful as a pre-flight check before running tflite_to_c.py — tells you which
-op types appear (defines the C kernels you must implement) and how tensors and
-quantisation parameters are laid out.
+Useful as a pre-flight check before packaging a LiteRT Micro workload — tells
+you which op types appear and how tensors and quantisation parameters are laid
+out.
 
 Steps:
     1. load()           Load the .tflite with the LiteRT interpreter.

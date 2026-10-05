@@ -27,19 +27,19 @@ REQS            := requirements.txt
 #   Weights:     INT8, symmetric per-channel
 #   Activations: INT8, asymmetric  (true W8A8 — no calibration needed)
 MODEL_OUT       := src/software/model/resnet18_int8_channelwise.tflite
-MODEL_GEN_DIR   := src/software/model
+WORKLOAD_DIR    := src/software/workload
 
 # Sentinel files (touched after each step succeeds; avoids redundant re-runs)
 SETUP_SENTINEL     := .venv/.setup_done
-MODEL_GEN_SENTINEL := $(MODEL_GEN_DIR)/.model_gen_done
+WORKLOAD_SENTINEL  := $(WORKLOAD_DIR)/.workload_done
 
 # ---------------------------------------------------------------------------
 # Phony targets
 # ---------------------------------------------------------------------------
-.PHONY: all setup fetch inspect model_gen clean help
+.PHONY: all setup fetch inspect workload workload_run clean help
 
 ## Default: run the full pipeline end-to-end
-all: model_gen
+all: workload
 
 # ---------------------------------------------------------------------------
 # 1. Set up Python virtual environment
@@ -73,19 +73,21 @@ inspect: $(MODEL_OUT) $(SETUP_SENTINEL)
 	$(VENV_PYTHON) scripts/inspect_tflite.py --model $(MODEL_OUT)
 
 # ---------------------------------------------------------------------------
-# 4. Generate static C source files from the TFLite model
-#    inspect_tflite.py runs first so the op inventory is visible in the log
-#    and tflite_to_c.py dynamically filters OP_KERNEL to only present ops.
+# 4. Package the model as a bare-metal LiteRT Micro (TFLM) workload
+#    Uses only tflite-micro's own generators (runtime tree export, model
+#    array, op resolver, golden test vectors). Linux / WSL only.
 # ---------------------------------------------------------------------------
-model_gen: $(MODEL_GEN_SENTINEL)
+workload: $(WORKLOAD_SENTINEL)
 
-$(MODEL_GEN_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/inspect_tflite.py scripts/tflite_to_c.py
-	@echo "[inspect] Op inventory for $(MODEL_OUT)..."
-	$(VENV_PYTHON) scripts/inspect_tflite.py --model $(MODEL_OUT)
-	@echo "[model_gen] Generating ISA-independent C from $(MODEL_OUT)..."
-	$(VENV_PYTHON) scripts/tflite_to_c.py --model $(MODEL_OUT)
-	@echo "model_gen done" > $(MODEL_GEN_SENTINEL)
-	@echo "[ok] C sources written to $(MODEL_GEN_DIR)/."
+$(WORKLOAD_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/gen_tflm_workload.py
+	@echo "[workload] Generating LiteRT Micro workload from $(MODEL_OUT)..."
+	$(VENV_PYTHON) scripts/gen_tflm_workload.py --model $(MODEL_OUT) --out $(WORKLOAD_DIR)
+	@echo "workload done" > $(WORKLOAD_SENTINEL)
+	@echo "[ok] Workload written to $(WORKLOAD_DIR)/."
+
+## Native build + bit-exact check against the LiteRT reference output
+workload_run: $(WORKLOAD_SENTINEL)
+	$(MAKE) -C $(WORKLOAD_DIR) run
 
 # ---------------------------------------------------------------------------
 # Utility
@@ -98,9 +100,10 @@ help:
 	@echo "  make setup      — create .venv and install requirements"
 	@echo "  make fetch      — download resnet18_int8_channelwise.tflite from HuggingFace"
 	@echo "  make inspect    — print op inventory + tensor summary (optional)"
-	@echo "  make model_gen  — generate static C from the TFLite model"
-	@echo "  make all        — run the full pipeline (default)"
-	@echo "  make clean      — remove venv, model outputs, generated C sources"
+	@echo "  make workload   — generate the bare-metal LiteRT Micro workload"
+	@echo "  make workload_run — build it natively and check against LiteRT"
+	@echo "  make all        — run the full pipeline (default: workload)"
+	@echo "  make clean      — remove venv, model outputs, generated workload"
 	@echo ""
 	@echo "  Model: litert-community/resnet18 / resnet18_int8_channelwise.tflite"
 	@echo "         W8A8: weights INT8 per-channel symmetric,"
