@@ -2,18 +2,23 @@
 """Package a .tflite model as a bare-metal LiteRT Micro (TFLM) workload.
 
 Every artefact is produced by a generator that ships with tflite-micro:
-  tflm/                    project_generation/create_tflm_tree.py
-  model/*_model_data.*     generate_cc_arrays.py
-  model/gen_micro_mutable_op_resolver.h
+  <out>/tflm/              project_generation/create_tflm_tree.py
+  <out>/model/*_model_data.*
+                           generate_cc_arrays.py
+  <out>/model/gen_micro_mutable_op_resolver.h
                            gen_micro_mutable_op_resolver/generate_micro_mutable_op_resolver_from_model.py
-  test_data/*              generate_test_for_model.py (TestDataGenerator, LiteRT
+  <test-out>/test_data/*   generate_test_for_model.py (TestDataGenerator, LiteRT
                            BUILTIN_REF kernels) + generate_cc_arrays.py
+
+<out> (src/software/workload) is the runtime shared by every app; the golden
+vectors belong to the test app (src/software/test).
 
 Requires Linux / WSL (create_tflm_tree.py drives tflite-micro's GNU Makefile).
 
 Usage:
     python scripts/gen_tflm_workload.py
-    python scripts/gen_tflm_workload.py --model path/to/model.tflite --out path/to/workload
+    python scripts/gen_tflm_workload.py --model path/to/model.tflite --out path/to/workload \
+        --test-out path/to/test
 """
 
 import argparse
@@ -28,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_MODEL = REPO_ROOT / "src/software/model/resnet18_int8_channelwise.tflite"
 DEFAULT_OUT = REPO_ROOT / "src/software/workload"
+DEFAULT_TEST_OUT = REPO_ROOT / "src/software/test"
 DEFAULT_TFLM_DIR = Path.home() / "tflite-micro"
 DEFAULT_TFLM_COMMIT = "06f0b46177562d00c4b2e7b11ec377b5104f582e"
 DEFAULT_TFLM_TARGET = "riscv32_generic"
@@ -114,6 +120,9 @@ def main() -> None:
                     help=f"input .tflite (default: {DEFAULT_MODEL.relative_to(REPO_ROOT)})")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT,
                     help=f"workload directory (default: {DEFAULT_OUT.relative_to(REPO_ROOT)})")
+    ap.add_argument("--test-out", type=Path, default=DEFAULT_TEST_OUT,
+                    help=f"test app directory for test_data/ "
+                         f"(default: {DEFAULT_TEST_OUT.relative_to(REPO_ROOT)})")
     ap.add_argument("--tflm-dir", type=Path, default=DEFAULT_TFLM_DIR,
                     help=f"tflite-micro checkout (default: {DEFAULT_TFLM_DIR})")
     ap.add_argument("--tflm-commit", default=DEFAULT_TFLM_COMMIT,
@@ -126,6 +135,7 @@ def main() -> None:
 
     model = args.model.resolve()
     out = args.out.resolve()
+    test_out = args.test_out.resolve()
     tflm_dir = args.tflm_dir.resolve()
     tools = tflm_dir / "tensorflow/lite/micro/tools"
     name = model.stem
@@ -146,16 +156,17 @@ def main() -> None:
 
     print(f"[2/4] Embedding {model.name} as a C++ array")
     (out / "model").mkdir(parents=True, exist_ok=True)
-    (out / "test_data").mkdir(parents=True, exist_ok=True)
     cc_array(tools, out, f"model/{name}_model_data", model, env)
 
     print("[3/4] Generating MicroMutableOpResolver for the model's operators")
     gen_op_resolver(tflm_dir, tools, model, out, env)
 
     print(f"[4/4] Generating golden input/output with LiteRT reference kernels (seed={args.seed})")
-    gen_test_data(tools, model, out, args.seed, env)
+    shutil.rmtree(test_out / "test_data", ignore_errors=True)
+    (test_out / "test_data").mkdir(parents=True)
+    gen_test_data(tools, model, test_out, args.seed, env)
 
-    print(f"[ok] Workload written to {out}")
+    print(f"[ok] Workload written to {out}, golden vectors to {test_out / 'test_data'}")
 
 
 if __name__ == "__main__":

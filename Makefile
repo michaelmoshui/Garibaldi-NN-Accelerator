@@ -28,6 +28,11 @@ REQS            := requirements.txt
 #   Activations: INT8, asymmetric  (true W8A8 — no calibration needed)
 MODEL_OUT       := src/software/model/resnet18_int8_channelwise.tflite
 WORKLOAD_DIR    := src/software/workload
+TEST_DIR        := src/software/test
+DEMO_DIR        := src/software/demo
+
+# Demo: number of photos to classify (empty = all 20), e.g. make demo_spike N=2
+N ?=
 
 # Spike ISA simulator (override on command line if not on PATH).
 # `make get_spike` installs into $HOME/.local/riscv when apt has no packages.
@@ -38,11 +43,13 @@ PK           ?= $(if $(wildcard $(SPIKE_PREFIX)/riscv64-unknown-elf/bin/pk),$(SP
 # Sentinel files (touched after each step succeeds; avoids redundant re-runs)
 SETUP_SENTINEL     := .venv/.setup_done
 WORKLOAD_SENTINEL  := $(WORKLOAD_DIR)/.workload_done
+DEMO_SENTINEL      := $(DEMO_DIR)/.demo_done
 
 # ---------------------------------------------------------------------------
 # Phony targets
 # ---------------------------------------------------------------------------
-.PHONY: all setup fetch inspect workload workload_run compile get_spike spike_run spike_log clean help
+.PHONY: all setup fetch inspect workload workload_run compile get_spike spike_run spike_mix \
+        demo_data demo demo_spike clean help
 
 ## Default: run the full pipeline end-to-end
 all: workload
@@ -87,22 +94,23 @@ workload: $(WORKLOAD_SENTINEL)
 
 $(WORKLOAD_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/gen_tflm_workload.py
 	@echo "[workload] Generating LiteRT Micro workload from $(MODEL_OUT)..."
-	$(VENV_PYTHON) scripts/gen_tflm_workload.py --model $(MODEL_OUT) --out $(WORKLOAD_DIR)
+	$(VENV_PYTHON) scripts/gen_tflm_workload.py --model $(MODEL_OUT) --out $(WORKLOAD_DIR) \
+	    --test-out $(TEST_DIR)
 	@echo "workload done" > $(WORKLOAD_SENTINEL)
-	@echo "[ok] Workload written to $(WORKLOAD_DIR)/."
+	@echo "[ok] Workload written to $(WORKLOAD_DIR)/, golden vectors to $(TEST_DIR)/test_data/."
 
 ## Native build + bit-exact check against the LiteRT reference output
 workload_run: $(WORKLOAD_SENTINEL)
-	$(MAKE) -C $(WORKLOAD_DIR) run
+	$(MAKE) -C $(TEST_DIR) run
 
 # ---------------------------------------------------------------------------
-# 5. Compile the workload to a bare-metal RV64IMC ELF
+# 5. Compile the golden-vector test to a bare-metal RV64IMC ELF
 #    Uses the RISC-V toolchain bundled inside the tflite-micro checkout.
-#    Output: src/software/workload/build/rv64/resnet18_workload.elf
+#    Output: src/software/workload/build/rv64/resnet18_test.elf
 # ---------------------------------------------------------------------------
-## Compile the TFLM workload to a bare-metal RV64IMC ELF (for Spike / CV-Wally)
+## Compile the TFLM test program to a bare-metal RV64IMC ELF (for Spike / CV-Wally)
 compile: $(WORKLOAD_SENTINEL)
-	$(MAKE) -C $(WORKLOAD_DIR) CONFIG=rv64
+	$(MAKE) -C $(TEST_DIR) all CONFIG=rv64
 
 # ---------------------------------------------------------------------------
 # 6. Spike RISC-V ISA simulator
@@ -113,11 +121,32 @@ get_spike:
 
 ## Build the RV64 ELF and run one inference under Spike (prints cycles + instret)
 spike_run: compile
-	$(MAKE) -C $(WORKLOAD_DIR) spike SPIKE=$(SPIKE) PK=$(PK)
+	$(MAKE) -C $(TEST_DIR) spike SPIKE=$(SPIKE) PK=$(PK)
 
-## Run under Spike capturing a full commit log for instruction-mix analysis
-spike_log: compile
-	$(MAKE) -C $(WORKLOAD_DIR) spike_log SPIKE=$(SPIKE) PK=$(PK)
+## Dynamic instruction mix (Spike -g PC histogram + disassembly) -> results/insn_mix/
+spike_mix: compile
+	$(MAKE) -C $(TEST_DIR) spike_mix SPIKE=$(SPIKE) PK=$(PK)
+
+# ---------------------------------------------------------------------------
+# 7. Demo: classify 20 real ImageNet photos (vs. the random golden vector
+#    used by workload_run / spike_run during development)
+# ---------------------------------------------------------------------------
+## Download the photos, quantize them, and record LiteRT reference logits
+demo_data: $(DEMO_SENTINEL)
+
+$(DEMO_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/gen_demo_data.py
+	@echo "[demo] Generating ImageNet photo demo data..."
+	$(VENV_PYTHON) scripts/gen_demo_data.py --model $(MODEL_OUT) --out $(DEMO_DIR)
+	@echo "demo done" > $(DEMO_SENTINEL)
+	@echo "[ok] Demo data written to $(DEMO_DIR)/."
+
+## Native build + classify the photos (fast; seconds per photo)
+demo: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
+	$(MAKE) -C $(DEMO_DIR) run N=$(N)
+
+## Classify the photos on the bare-metal RV64 ELF under Spike (slow; use N=)
+demo_spike: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
+	$(MAKE) -C $(DEMO_DIR) spike N=$(N) SPIKE=$(SPIKE) PK=$(PK)
 
 # ---------------------------------------------------------------------------
 # Utility
@@ -135,7 +164,10 @@ help:
 	@echo "  make compile    — cross-compile to bare-metal RV64IMC ELF"
 	@echo "  make get_spike  — build Spike + pk from source (WSL/Linux)"
 	@echo "  make spike_run  — run the RV64 ELF under Spike (cycles + instret)"
-	@echo "  make spike_log  — run under Spike with --log-commits (instruction trace)"
+	@echo "  make spike_mix  — dynamic instruction mix under Spike -> results/insn_mix/"
+	@echo "  make demo_data  — fetch 20 ImageNet photos + LiteRT reference logits"
+	@echo "  make demo       — demo: classify the photos (native build) [N=count]"
+	@echo "  make demo_spike — demo: classify the photos under Spike    [N=count]"
 	@echo "  make all        — run the full pipeline (default: workload)"
 	@echo "  make clean      — remove venv, model outputs, generated workload"
 	@echo ""

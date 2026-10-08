@@ -8,3 +8,7 @@ ai-edge-litert>=1.0.0
 
 # gen_tflm_workload.py — tflite-micro's op-resolver generator template engine
 mako
+
+# gen_demo_data.py — ImageNet photo decode / resize for the demo
+Pillow
+numpy
