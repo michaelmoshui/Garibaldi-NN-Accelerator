@@ -29,6 +29,12 @@ REQS            := requirements.txt
 MODEL_OUT       := src/software/model/resnet18_int8_channelwise.tflite
 WORKLOAD_DIR    := src/software/workload
 
+# Spike ISA simulator (override on command line if not on PATH).
+# `make get_spike` installs into $HOME/.local/riscv when apt has no packages.
+SPIKE_PREFIX ?= $(HOME)/.local/riscv
+SPIKE        ?= $(if $(wildcard $(SPIKE_PREFIX)/bin/spike),$(SPIKE_PREFIX)/bin/spike,spike)
+PK           ?= $(if $(wildcard $(SPIKE_PREFIX)/riscv64-unknown-elf/bin/pk),$(SPIKE_PREFIX)/riscv64-unknown-elf/bin/pk,pk)
+
 # Sentinel files (touched after each step succeeds; avoids redundant re-runs)
 SETUP_SENTINEL     := .venv/.setup_done
 WORKLOAD_SENTINEL  := $(WORKLOAD_DIR)/.workload_done
@@ -36,7 +42,7 @@ WORKLOAD_SENTINEL  := $(WORKLOAD_DIR)/.workload_done
 # ---------------------------------------------------------------------------
 # Phony targets
 # ---------------------------------------------------------------------------
-.PHONY: all setup fetch inspect workload workload_run clean help
+.PHONY: all setup fetch inspect workload workload_run compile get_spike spike_run spike_log clean help
 
 ## Default: run the full pipeline end-to-end
 all: workload
@@ -90,6 +96,30 @@ workload_run: $(WORKLOAD_SENTINEL)
 	$(MAKE) -C $(WORKLOAD_DIR) run
 
 # ---------------------------------------------------------------------------
+# 5. Compile the workload to a bare-metal RV64IMC ELF
+#    Uses the RISC-V toolchain bundled inside the tflite-micro checkout.
+#    Output: src/software/workload/build/rv64/resnet18_workload.elf
+# ---------------------------------------------------------------------------
+## Compile the TFLM workload to a bare-metal RV64IMC ELF (for Spike / CV-Wally)
+compile: $(WORKLOAD_SENTINEL)
+	$(MAKE) -C $(WORKLOAD_DIR) CONFIG=rv64
+
+# ---------------------------------------------------------------------------
+# 6. Spike RISC-V ISA simulator
+# ---------------------------------------------------------------------------
+## Install Spike + proxy kernel (pk) on WSL/Linux (source build; apt has no spike on Ubuntu 24.04)
+get_spike:
+	bash scripts/install_spike.sh
+
+## Build the RV64 ELF and run one inference under Spike (prints cycles + instret)
+spike_run: compile
+	$(MAKE) -C $(WORKLOAD_DIR) spike SPIKE=$(SPIKE) PK=$(PK)
+
+## Run under Spike capturing a full commit log for instruction-mix analysis
+spike_log: compile
+	$(MAKE) -C $(WORKLOAD_DIR) spike_log SPIKE=$(SPIKE) PK=$(PK)
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 clean:
@@ -102,6 +132,10 @@ help:
 	@echo "  make inspect    — print op inventory + tensor summary (optional)"
 	@echo "  make workload   — generate the bare-metal LiteRT Micro workload"
 	@echo "  make workload_run — build it natively and check against LiteRT"
+	@echo "  make compile    — cross-compile to bare-metal RV64IMC ELF"
+	@echo "  make get_spike  — build Spike + pk from source (WSL/Linux)"
+	@echo "  make spike_run  — run the RV64 ELF under Spike (cycles + instret)"
+	@echo "  make spike_log  — run under Spike with --log-commits (instruction trace)"
 	@echo "  make all        — run the full pipeline (default: workload)"
 	@echo "  make clean      — remove venv, model outputs, generated workload"
 	@echo ""
