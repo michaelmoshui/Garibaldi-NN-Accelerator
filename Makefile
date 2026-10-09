@@ -32,6 +32,7 @@ TEST_DIR        := src/software/test
 DEMO_DIR        := src/software/demo
 DEV_DIR         := src/software_dev
 DEV_MODEL       := $(DEV_DIR)/model/dev_net_int8.tflite
+HW_DIR          := src/hardware
 
 # Demo: number of photos to classify (empty = all 20), e.g. make demo_spike N=2
 N ?=
@@ -53,7 +54,7 @@ DEV_SENTINEL       := $(DEV_DIR)/.dev_workload_done
 # ---------------------------------------------------------------------------
 .PHONY: all setup fetch inspect workload workload_run compile get_spike spike_run spike_mix \
         demo_data demo demo_spike dev_workload dev_run dev_spike dev_spike_mix dev_inspect \
-        clean help
+        get_hw_tools hw_setup hw_lint hw_sim clean help
 
 ## Default: run the full pipeline end-to-end
 all: workload
@@ -184,6 +185,25 @@ dev_inspect: $(DEV_SENTINEL)
 	$(VENV_PYTHON) scripts/inspect_tflite.py --model $(DEV_MODEL)
 
 # ---------------------------------------------------------------------------
+# 9. Hardware: CV-Wally RTL + project RTL on Verilator (see src/hardware/README.md)
+# ---------------------------------------------------------------------------
+## Install Verilator 5.036 (source build), Verible, uv and GTKWave (WSL/Linux)
+get_hw_tools:
+	bash scripts/install_hw_tools.sh
+
+## Clone CV-Wally at the pinned commit into src/hardware/cvw
+hw_setup:
+	bash scripts/setup_cvw.sh
+
+## Verilator lint (full core + project RTL) + Verible style lint
+hw_lint:
+	$(MAKE) -C $(HW_DIR) lint
+
+## Build the CV-Wally Verilator model (garibaldi_rv64imc config)
+hw_sim:
+	$(MAKE) -C $(HW_DIR) sim
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 clean:
@@ -209,6 +229,10 @@ help:
 	@echo "  make dev_spike_mix — software_dev: dynamic instruction mix"
 	@echo "  make dev_inspect   — software_dev: model structure report"
 	@echo "      [CUSTOM_KERNELS=\"CONV_2D ...\" (default CONV_2D; empty = reference)]"
+	@echo "  make get_hw_tools  — hardware: Verilator 5.036, Verible, uv, GTKWave (WSL)"
+	@echo "  make hw_setup      — hardware: clone CV-Wally (pinned) into src/hardware/cvw"
+	@echo "  make hw_lint       — hardware: Verilator + Verible lint"
+	@echo "  make hw_sim        — hardware: build the CV-Wally Verilator model"
 	@echo "  make all        — run the full pipeline (default: workload)"
 	@echo "  make clean      — remove venv, model outputs, generated workload"
 	@echo ""

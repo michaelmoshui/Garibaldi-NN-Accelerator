@@ -34,3 +34,7 @@ src/software_dev/build/
 src/software_dev/tflm/
 src/software_dev/model/
 src/software_dev/test_data/
+
+# hardware: CV-Wally checkout (make hw_setup) and all build output
+src/hardware/cvw/
+src/hardware/build/
