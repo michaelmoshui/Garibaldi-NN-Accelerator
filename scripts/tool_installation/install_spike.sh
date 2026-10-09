@@ -6,8 +6,8 @@
 # Only the minimal host build tools below are installed via apt.
 #
 # Usage:
-#   bash scripts/install_spike.sh               # first-time install
-#   FORCE=1 bash scripts/install_spike.sh       # rebuild everything
+#   bash scripts/tool_installation/install_spike.sh               # first-time install
+#   FORCE=1 bash scripts/tool_installation/install_spike.sh       # rebuild everything
 #   TC_VERSION=2024.12.10 bash ...              # pin toolchain release date
 set -euo pipefail
 

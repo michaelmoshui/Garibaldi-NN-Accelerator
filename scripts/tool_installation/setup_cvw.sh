@@ -6,15 +6,15 @@
 #
 # Submodules (riscv-arch-test, coremark, embench, ...) are skipped; they are
 # only needed for upstream's own regression-wally flow:
-#   WITH_SUBMODULES=1 bash scripts/setup_cvw.sh
+#   WITH_SUBMODULES=1 bash scripts/tool_installation/setup_cvw.sh
 #
 # Usage:
-#   bash scripts/setup_cvw.sh
-#   CVW_COMMIT=<sha> bash scripts/setup_cvw.sh      # move the pin
-#   CVW_REPO=https://github.com/<you>/cvw bash ...  # use a fork
+#   bash scripts/tool_installation/setup_cvw.sh
+#   CVW_COMMIT=<sha> bash scripts/tool_installation/setup_cvw.sh   # move the pin
+#   CVW_REPO=https://github.com/<you>/cvw bash ...                 # use a fork
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CVW_DIR="${CVW_DIR:-${ROOT}/src/hardware/cvw}"
 CVW_REPO="${CVW_REPO:-https://github.com/openhwfoundation/cvw.git}"
 CVW_COMMIT="${CVW_COMMIT:-2064ca2bb8a88e3e3ec43753be93d00bef49345b}"  # main, 2026-10-06

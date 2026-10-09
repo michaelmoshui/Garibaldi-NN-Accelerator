@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """Package a .tflite model as a bare-metal LiteRT Micro (TFLM) workload.
 
-Every artefact is produced by a generator that ships with tflite-micro:
-  <out>/tflm/              project_generation/create_tflm_tree.py
+Exports the shared components used by every app (test, demo, dev…):
+  <out>/tflm/              TFLM runtime tree  (create_tflm_tree.py)
   <out>/model/*_model_data.*
-                           generate_cc_arrays.py
+                           C++ model array    (generate_cc_arrays.py)
   <out>/model/gen_micro_mutable_op_resolver.h
-                           gen_micro_mutable_op_resolver/generate_micro_mutable_op_resolver_from_model.py
-  <test-out>/test_data/*   generate_test_for_model.py (TestDataGenerator, LiteRT
-                           BUILTIN_REF kernels) + generate_cc_arrays.py
+                           Op resolver header (gen_micro_mutable_op_resolver)
 
-<out> (src/software/workload) is the runtime shared by every app; the golden
-vectors belong to the test app (src/software/test).
+These outputs live under src/software/workload/ and are shared by both the
+test app and the demo app.  Workload-specific data is generated separately:
+  • Random golden test vectors → scripts/ml_workload/gen_test_data.py
+  • Real ImageNet demo photos  → scripts/ml_workload/gen_demo_data.py
 
 Requires Linux / WSL (create_tflm_tree.py drives tflite-micro's GNU Makefile).
 
 Usage:
-    python scripts/gen_tflm_workload.py
-    python scripts/gen_tflm_workload.py --model path/to/model.tflite --out path/to/workload \
-        --test-out path/to/test
+    python scripts/ml_workload/gen_tflm_workload.py
+    python scripts/ml_workload/gen_tflm_workload.py \
+        --model path/to/model.tflite --out path/to/workload
 """
 
 import argparse
@@ -26,14 +26,12 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 DEFAULT_MODEL = REPO_ROOT / "src/software/model/resnet18_int8_channelwise.tflite"
 DEFAULT_OUT = REPO_ROOT / "src/software/workload"
-DEFAULT_TEST_OUT = REPO_ROOT / "src/software/test"
 DEFAULT_TFLM_DIR = Path.home() / "tflite-micro"
 DEFAULT_TFLM_COMMIT = "06f0b46177562d00c4b2e7b11ec377b5104f582e"
 DEFAULT_TFLM_TARGET = "riscv32_generic"
@@ -90,52 +88,23 @@ def gen_op_resolver(tflm_dir: Path, tools: Path, model: Path, out: Path, env: di
         env=env)
 
 
-def gen_test_data(tools: Path, model: Path, out: Path, seed: int, env: dict) -> None:
-    """Random int8 input + LiteRT reference-kernel output, as C++ arrays."""
-    import numpy as np
-    from tflite_micro.tensorflow.lite.micro.tools.generate_test_for_model import (
-        TestDataGenerator,
-    )
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        shutil.copy(model, tmp / model.name)
-        # TestDataGenerator writes its CSVs next to the model path it is given.
-        cwd = os.getcwd()
-        os.chdir(tmp)
-        try:
-            np.random.seed(seed)
-            TestDataGenerator(".", [model.name], [0]).generate_golden_single_in_single_out()
-        finally:
-            os.chdir(cwd)
-
-        for csv in sorted(tmp.glob("*_int8.csv")):
-            cc_array(tools, out, f"test_data/{csv.stem}_test_data", csv, env)
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", type=Path, default=DEFAULT_MODEL,
                     help=f"input .tflite (default: {DEFAULT_MODEL.relative_to(REPO_ROOT)})")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT,
-                    help=f"workload directory (default: {DEFAULT_OUT.relative_to(REPO_ROOT)})")
-    ap.add_argument("--test-out", type=Path, default=DEFAULT_TEST_OUT,
-                    help=f"test app directory for test_data/ "
-                         f"(default: {DEFAULT_TEST_OUT.relative_to(REPO_ROOT)})")
+                    help=f"shared workload directory (default: {DEFAULT_OUT.relative_to(REPO_ROOT)})")
     ap.add_argument("--tflm-dir", type=Path, default=DEFAULT_TFLM_DIR,
                     help=f"tflite-micro checkout (default: {DEFAULT_TFLM_DIR})")
     ap.add_argument("--tflm-commit", default=DEFAULT_TFLM_COMMIT,
                     help="tflite-micro commit to pin")
     ap.add_argument("--tflm-target", default=DEFAULT_TFLM_TARGET,
                     help=f"TFLM Makefile TARGET for the export (default: {DEFAULT_TFLM_TARGET})")
-    ap.add_argument("--seed", type=int, default=0,
-                    help="RNG seed for the golden input (default: 0)")
     args = ap.parse_args()
 
     model = args.model.resolve()
     out = args.out.resolve()
-    test_out = args.test_out.resolve()
     tflm_dir = args.tflm_dir.resolve()
     tools = tflm_dir / "tensorflow/lite/micro/tools"
     name = model.stem
@@ -151,22 +120,19 @@ def main() -> None:
            if k not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES")}
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(tflm_dir), env.get("PYTHONPATH")]))
 
-    print(f"[1/4] Exporting LiteRT Micro runtime tree (TARGET={args.tflm_target})")
+    print(f"[1/3] Exporting LiteRT Micro runtime tree (TARGET={args.tflm_target})")
     export_runtime(tflm_dir, tools, out, args.tflm_target, env)
 
-    print(f"[2/4] Embedding {model.name} as a C++ array")
+    print(f"[2/3] Embedding {model.name} as a C++ array")
     (out / "model").mkdir(parents=True, exist_ok=True)
     cc_array(tools, out, f"model/{name}_model_data", model, env)
 
-    print("[3/4] Generating MicroMutableOpResolver for the model's operators")
+    print("[3/3] Generating MicroMutableOpResolver for the model's operators")
     gen_op_resolver(tflm_dir, tools, model, out, env)
 
-    print(f"[4/4] Generating golden input/output with LiteRT reference kernels (seed={args.seed})")
-    shutil.rmtree(test_out / "test_data", ignore_errors=True)
-    (test_out / "test_data").mkdir(parents=True)
-    gen_test_data(tools, model, test_out, args.seed, env)
-
-    print(f"[ok] Workload written to {out}, golden vectors to {test_out / 'test_data'}")
+    print(f"[ok] Shared workload written to {out}")
+    print(f"     Run 'make test_data' to generate random golden test vectors.")
+    print(f"     Run 'make demo_data' to fetch ImageNet photo demo data.")
 
 
 if __name__ == "__main__":

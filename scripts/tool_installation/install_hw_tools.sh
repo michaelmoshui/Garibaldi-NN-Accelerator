@@ -12,8 +12,8 @@
 # Everything except the apt packages goes into the same prefix as Spike.
 #
 # Usage:
-#   bash scripts/install_hw_tools.sh                 # first-time install
-#   FORCE=1 bash scripts/install_hw_tools.sh         # rebuild everything
+#   bash scripts/tool_installation/install_hw_tools.sh                 # first-time install
+#   FORCE=1 bash scripts/tool_installation/install_hw_tools.sh         # rebuild everything
 #   VERILATOR_VERSION=v5.040 bash ...                # override the pin
 set -euo pipefail
 

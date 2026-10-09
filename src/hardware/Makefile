@@ -1,7 +1,7 @@
 # =============================================================================
 # Garibaldi hardware flow: CV-Wally + project RTL on Verilator (WSL / Linux)
 #
-#   make setup              clone CV-Wally at the pinned commit (scripts/setup_cvw.sh)
+#   make setup              clone CV-Wally at the pinned commit (scripts/tool_installation/setup_cvw.sh)
 #   make lint               Verilator lint (full core + project RTL) + Verible style lint
 #   make sim                build the CV-Wally Verilator model for CONFIG
 #   make run ELF=foo.elf    run a bare-metal ELF on the RTL model
@@ -16,7 +16,7 @@ BUILD     ?= $(HW_DIR)/build
 JOBS      ?= $(shell nproc 2>/dev/null || echo 4)
 
 # ---------------------------------------------------------------------------
-# Tools (installed by scripts/install_hw_tools.sh / scripts/install_spike.sh)
+# Tools (installed by scripts/tool_installation/install_hw_tools.sh / install_spike.sh)
 # ---------------------------------------------------------------------------
 HW_PREFIX    ?= $(HOME)/.local/riscv
 VERILATOR    ?= $(if $(wildcard $(HW_PREFIX)/bin/verilator),$(HW_PREFIX)/bin/verilator,verilator)
@@ -64,7 +64,7 @@ help:
 	@sed -n '2,9p' $(firstword $(MAKEFILE_LIST))
 
 setup:
-	bash $(ROOT)/scripts/setup_cvw.sh
+	bash $(ROOT)/scripts/tool_installation/setup_cvw.sh
 
 check_cvw:
 	@test -f $(CVW_PKG) || { echo "CV-Wally not found at $(CVW); run 'make setup'"; exit 1; }

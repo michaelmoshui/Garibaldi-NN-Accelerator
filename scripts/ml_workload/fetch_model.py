@@ -8,8 +8,8 @@ Default model: resnet18_int8_channelwise.tflite (litert-community/resnet18)
   - No calibration or post-hoc quantization needed.
 
 Usage:
-    python scripts/fetch_model.py
-    python scripts/fetch_model.py --repo litert-community/resnet18 \\
+    python scripts/ml_workload/fetch_model.py
+    python scripts/ml_workload/fetch_model.py --repo litert-community/resnet18 \\
                                   --file resnet18_int8_channelwise.tflite \\
                                   --out  src/software/model/resnet18_int8_channelwise.tflite
 """

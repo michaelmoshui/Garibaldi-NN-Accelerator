@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dynamic instruction mix from a Spike PC histogram (spike -g).
+"""Inspect Spike simulation output: dynamic instruction mix from a Spike PC histogram (spike -g).
 
 Spike's -g flag counts how many times each PC retires and prints the table to
 stderr on exit ("PC Histogram size:N" followed by "<hex pc> <count>" lines).
@@ -7,9 +7,14 @@ Joining those counts with the ELF disassembly gives the exact dynamic
 instruction mix — per mnemonic, per instruction class, per function, and per
 basic block — without writing a per-instruction commit log.
 
+Works for any workload (test, demo, dev, etc.); pass the appropriate --out
+prefix to name results accordingly.
+
 Usage:
-  python3 scripts/insn_mix.py --hist pc_hist.txt --disasm disasm.txt \
-      [--spike-out spike_stdout.txt] --out results/insn_mix/resnet18_test
+  python3 scripts/result_extraction/inspect_spike.py \
+      --hist pc_hist.txt --disasm disasm.txt \
+      [--spike-out spike_stdout.txt] \
+      --out results/spike_results/resnet18_test
 
 The disassembly must come from `objdump -d -C -M no-aliases` so that
 compressed instructions keep their c.* names and C++ symbols are demangled.
@@ -107,7 +112,7 @@ def main() -> None:
     ap.add_argument("--hist", type=Path, required=True, help="Spike -g stderr output")
     ap.add_argument("--disasm", type=Path, required=True, help="objdump -d -C -M no-aliases output")
     ap.add_argument("--spike-out", type=Path, help="program stdout (for invoke cycles/instret)")
-    ap.add_argument("--out", type=Path, required=True, help="output path prefix")
+    ap.add_argument("--out", type=Path, required=True, help="output path prefix (e.g. results/spike_results/resnet18_test)")
     ap.add_argument("--top", type=int, default=25, help="rows in the per-function / per-mnemonic tables")
     ap.add_argument("--blocks", type=int, default=10, help="hot basic blocks to print")
     args = ap.parse_args()
@@ -230,11 +235,11 @@ def main() -> None:
         for func, n in sorted(by_func.items(), key=lambda kv: -kv[1]):
             w.writerow([func, n, *(func_class[func].get(c, 0) for c in CLASS_ORDER)])
 
-    print(f"[insn_mix] {total:,} retired ({user:,} app, {unmapped:,} pk/unmapped)")
+    print(f"[inspect_spike] {total:,} retired ({user:,} app, {unmapped:,} pk/unmapped)")
     for cls in CLASS_ORDER:
         if by_class.get(cls):
             print(f"  {cls:7s} {pct(by_class[cls], user)}")
-    print(f"[insn_mix] report: {report}")
+    print(f"[inspect_spike] report: {report}")
 
 
 if __name__ == "__main__":

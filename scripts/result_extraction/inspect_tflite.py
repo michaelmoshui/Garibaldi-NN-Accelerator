@@ -20,7 +20,7 @@ outside the image under SAME padding (see conv_window()). The executed count
 is the one that matches a Spike run of the TFLM workload.
 
 Usage:
-    python scripts/inspect_tflite.py --model <path/to/model.tflite> [--out DIR]
+    python scripts/result_extraction/inspect_tflite.py --model <path/to/model.tflite> [--out DIR]
 """
 
 import argparse
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-DEFAULT_OUT = Path(__file__).resolve().parents[1] / "results" / "model_structure"
+DEFAULT_OUT = Path(__file__).resolve().parents[2] / "results" / "model_structure"
 WEIGHTED_OPS = {"CONV_2D", "DEPTHWISE_CONV_2D", "FULLY_CONNECTED", "BATCH_MATMUL"}
 
 
@@ -87,7 +87,6 @@ def constant_indices(interp) -> set:
     op_outputs   = {int(idx) for op in ops for idx in op["outputs"] if idx >= 0}
     model_inputs = {d["index"] for d in interp.get_input_details()}
     return op_inputs - op_outputs - model_inputs
-
 
 def tensor_kind(idx: int, const_set: set, scratch_set: set) -> str:
     return "const" if idx in const_set else "scratch" if idx in scratch_set else "act"
@@ -278,7 +277,7 @@ def write_report(interp, model_path: str, out_dir: Path) -> Path:
     L = []
     L.append(f"# Model structure — {name}\n")
     L.append(f"Source: `{Path(model_path).as_posix()}`, inspected with the LiteRT interpreter "
-             "(`scripts/inspect_tflite.py`). MACs are computed from tensor shapes.\n")
+             "(`scripts/result_extraction/inspect_tflite.py`). MACs are computed from tensor shapes.\n")
     L.append("| Quantity | Value |")
     L.append("|---|---:|")
     L.append(f"| Operators | {len(ops)} ({len(by_type)} distinct types) |")

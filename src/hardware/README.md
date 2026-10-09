@@ -35,7 +35,7 @@ src/hardware/
 
 ## How the flow works
 
-**Upstream stays pristine.** `scripts/setup_cvw.sh` checks out CV-Wally at a pinned commit. Project
+**Upstream stays pristine.** `scripts/tool_installation/setup_cvw.sh` checks out CV-Wally at a pinned commit. Project
 changes never go into `cvw/`. New modules go in `rtl/`. To change an upstream file, copy it into
 `rtl/overrides/` and edit the copy. The Makefile drops the upstream file with the same name and
 compiles yours. See [rtl/overrides/README.md](rtl/overrides/README.md).
