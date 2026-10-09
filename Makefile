@@ -30,6 +30,8 @@ MODEL_OUT       := src/software/model/resnet18_int8_channelwise.tflite
 WORKLOAD_DIR    := src/software/workload
 TEST_DIR        := src/software/test
 DEMO_DIR        := src/software/demo
+DEV_DIR         := src/software_dev
+DEV_MODEL       := $(DEV_DIR)/model/dev_net_int8.tflite
 
 # Demo: number of photos to classify (empty = all 20), e.g. make demo_spike N=2
 N ?=
@@ -44,12 +46,14 @@ PK           ?= $(if $(wildcard $(SPIKE_PREFIX)/riscv64-unknown-elf/bin/pk),$(SP
 SETUP_SENTINEL     := .venv/.setup_done
 WORKLOAD_SENTINEL  := $(WORKLOAD_DIR)/.workload_done
 DEMO_SENTINEL      := $(DEMO_DIR)/.demo_done
+DEV_SENTINEL       := $(DEV_DIR)/.dev_workload_done
 
 # ---------------------------------------------------------------------------
 # Phony targets
 # ---------------------------------------------------------------------------
 .PHONY: all setup fetch inspect workload workload_run compile get_spike spike_run spike_mix \
-        demo_data demo demo_spike clean help
+        demo_data demo demo_spike dev_workload dev_run dev_spike dev_spike_mix dev_inspect \
+        clean help
 
 ## Default: run the full pipeline end-to-end
 all: workload
@@ -149,6 +153,37 @@ demo_spike: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
 	$(MAKE) -C $(DEMO_DIR) spike N=$(N) SPIKE=$(SPIKE) PK=$(PK)
 
 # ---------------------------------------------------------------------------
+# 8. software_dev: kernel-development workload (dev_net, one instance of
+#    each resnet18 op type, ~1.8 MMAC). Custom kernels live in
+#    src/software_dev/kernels/; choose them with CUSTOM_KERNELS="CONV_2D ..."
+#    (default CONV_2D, empty = all TFLM reference kernels).
+# ---------------------------------------------------------------------------
+## Build dev_net + TFLM runtime + per-op LiteRT golden outputs
+dev_workload: $(DEV_SENTINEL)
+
+$(DEV_SENTINEL): $(SETUP_SENTINEL) scripts/gen_dev_workload.py scripts/gen_tflm_workload.py
+	@echo "[dev] Generating the software_dev workload..."
+	$(VENV_PYTHON) scripts/gen_dev_workload.py --out $(DEV_DIR)
+	@echo "dev workload done" > $(DEV_SENTINEL)
+	@echo "[ok] software_dev workload written to $(DEV_DIR)/."
+
+## Native build + per-op check against LiteRT
+dev_run: $(DEV_SENTINEL)
+	$(MAKE) -C $(DEV_DIR) run
+
+## RV64 ELF under Spike: per-op cycles/instret + per-op check
+dev_spike: $(DEV_SENTINEL)
+	$(MAKE) -C $(DEV_DIR) spike SPIKE=$(SPIKE) PK=$(PK)
+
+## Dynamic instruction mix -> results/insn_mix/dev_net_<variant>.*
+dev_spike_mix: $(DEV_SENTINEL)
+	$(MAKE) -C $(DEV_DIR) spike_mix SPIKE=$(SPIKE) PK=$(PK)
+
+## Model structure report -> results/model_structure/dev_net_int8.md
+dev_inspect: $(DEV_SENTINEL)
+	$(VENV_PYTHON) scripts/inspect_tflite.py --model $(DEV_MODEL)
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 clean:
@@ -168,6 +203,12 @@ help:
 	@echo "  make demo_data  — fetch 20 ImageNet photos + LiteRT reference logits"
 	@echo "  make demo       — demo: classify the photos (native build) [N=count]"
 	@echo "  make demo_spike — demo: classify the photos under Spike    [N=count]"
+	@echo "  make dev_workload  — software_dev: generate dev_net + golden outputs"
+	@echo "  make dev_run       — software_dev: native build + per-op check"
+	@echo "  make dev_spike     — software_dev: per-op cycles/instret under Spike"
+	@echo "  make dev_spike_mix — software_dev: dynamic instruction mix"
+	@echo "  make dev_inspect   — software_dev: model structure report"
+	@echo "      [CUSTOM_KERNELS=\"CONV_2D ...\" (default CONV_2D; empty = reference)]"
 	@echo "  make all        — run the full pipeline (default: workload)"
 	@echo "  make clean      — remove venv, model outputs, generated workload"
 	@echo ""
