@@ -27,6 +27,7 @@ REQS            := requirements.txt
 #   Weights:     INT8, symmetric per-channel
 #   Activations: INT8, asymmetric  (true W8A8 — no calibration needed)
 MODEL_OUT       := src/software/model/resnet18_int8_channelwise.tflite
+SW_DIR          := src/software
 WORKLOAD_DIR    := src/software/workload
 TEST_DIR        := src/software/test
 DEMO_DIR        := src/software/demo
@@ -54,8 +55,8 @@ DEV_SENTINEL       := $(DEV_DIR)/.dev_workload_done
 # Phony targets
 # ---------------------------------------------------------------------------
 .PHONY: all setup fetch inspect workload test_data workload_run compile compile_demo compile_dev \
-        get_spike spike_run spike_mix \
-        demo_data demo_run demo_spike \
+        get_spike spike_run spike_mix baseline_report \
+        demo_data demo_run demo_spike demo_spike_mix \
         dev_workload dev_run dev_spike dev_spike_mix dev_inspect \
         get_hw_tools hw_setup hw_lint hw_sim clean help
 
@@ -124,21 +125,21 @@ $(TEST_DATA_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/ml_workload/gen_te
 
 ## Native build + bit-exact check against the LiteRT reference output
 workload_run: $(WORKLOAD_SENTINEL) $(TEST_DATA_SENTINEL)
-	$(MAKE) -C $(TEST_DIR) run
+	$(MAKE) -C $(SW_DIR) APP=test run
 
 # ---------------------------------------------------------------------------
 # 6. Compile the golden-vector test to a bare-metal RV64IMC ELF
 #    Uses the RISC-V toolchain bundled inside the tflite-micro checkout.
-#    Output: src/software/workload/build/rv64/resnet18_test.elf
+#    Output: src/software/build/rv64/resnet18_test.elf
 #    Note: compile_dev is the equivalent for the software_dev workload.
 # ---------------------------------------------------------------------------
 ## Compile the TFLM test program to a bare-metal RV64IMC ELF (for Spike / CV-Wally)
 compile: $(WORKLOAD_SENTINEL) $(TEST_DATA_SENTINEL)
-	$(MAKE) -C $(TEST_DIR) all CONFIG=rv64
+	$(MAKE) -C $(SW_DIR) APP=test all CONFIG=rv64
 
 ## Compile the demo program to a bare-metal RV64IMC ELF
 compile_demo: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
-	$(MAKE) -C $(DEMO_DIR) all CONFIG=rv64
+	$(MAKE) -C $(SW_DIR) APP=demo all CONFIG=rv64
 
 ## Compile the software_dev program to a bare-metal RV64IMC ELF
 compile_dev: $(DEV_SENTINEL)
@@ -153,11 +154,15 @@ get_spike:
 
 ## Build the RV64 ELF and run one inference under Spike (prints cycles + instret)
 spike_run: compile
-	$(MAKE) -C $(TEST_DIR) spike SPIKE=$(SPIKE) PK=$(PK)
+	$(MAKE) -C $(SW_DIR) APP=test spike SPIKE=$(SPIKE) PK=$(PK)
 
 ## Dynamic instruction mix (Spike -g PC histogram + disassembly) -> results/spike_results/
 spike_mix: compile
-	$(MAKE) -C $(TEST_DIR) spike_mix SPIKE=$(SPIKE) PK=$(PK)
+	$(MAKE) -C $(SW_DIR) APP=test spike_mix SPIKE=$(SPIKE) PK=$(PK)
+
+## Baseline Workload Analysis report from existing spike_mix + inspect results
+baseline_report:
+	$(PYTHON) scripts/result_extraction/gen_baseline_report.py
 
 # ---------------------------------------------------------------------------
 # 8. Demo: classify 20 real ImageNet photos (vs. the random golden vector
@@ -177,11 +182,15 @@ $(DEMO_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/ml_workload/gen_demo_da
 
 ## Native build + classify the photos (fast; seconds per photo)
 demo_run: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
-	$(MAKE) -C $(DEMO_DIR) run N=$(N)
+	$(MAKE) -C $(SW_DIR) APP=demo run N=$(N)
 
-## Classify the photos on the bare-metal RV64 ELF under Spike (slow; use N=)
+## Run one photo inference on bare-metal RV64 ELF under Spike (cycles + instret); use N= for more
 demo_spike: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
-	$(MAKE) -C $(DEMO_DIR) spike N=$(N) SPIKE=$(SPIKE) PK=$(PK)
+	$(MAKE) -C $(SW_DIR) APP=demo spike N=$(or $(N),1) SPIKE=$(SPIKE) PK=$(PK)
+
+## Dynamic instruction mix for the demo (Spike -g) -> results/spike_results/resnet18_demo.*
+demo_spike_mix: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
+	$(MAKE) -C $(SW_DIR) APP=demo spike_mix N=$(or $(N),1) SPIKE=$(SPIKE) PK=$(PK)
 
 # ---------------------------------------------------------------------------
 # 9. software_dev: kernel-development workload (dev_net, one instance of
@@ -259,12 +268,14 @@ help:
 	@echo "  make compile       — cross-compile test app to bare-metal RV64IMC ELF"
 	@echo "  make spike_run     — run the RV64 ELF under Spike (cycles + instret)"
 	@echo "  make spike_mix     — dynamic instruction mix -> results/spike_results/"
+	@echo "  make baseline_report — Baseline Workload Analysis -> results/baseline_workload_analysis.md"
 	@echo ""
 	@echo "  === Demo Pipeline ==="
-	@echo "  make demo_data     — fetch 20 ImageNet photos + LiteRT reference logits"
-	@echo "  make demo_run      — native build + classify the photos [N=count]"
-	@echo "  make compile_demo  — cross-compile demo app to bare-metal RV64IMC ELF"
-	@echo "  make demo_spike    — classify the photos under Spike    [N=count]"
+	@echo "  make demo_data      — fetch 20 ImageNet photos + LiteRT reference logits"
+	@echo "  make demo_run       — native build + classify the photos [N=count]"
+	@echo "  make compile_demo   — cross-compile demo app to bare-metal RV64IMC ELF"
+	@echo "  make demo_spike     — 1-photo inference under Spike (cycles + instret) [N=count]"
+	@echo "  make demo_spike_mix — dynamic instruction mix -> results/spike_results/ [N=count]"
 	@echo ""
 	@echo "  === software_dev Pipeline ==="
 	@echo "  make dev_workload  — generate dev_net + golden outputs"

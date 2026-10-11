@@ -52,7 +52,7 @@ INCLUDES := -I. -Itflm -Itflm/third_party -Itflm/third_party/gemmlowp \
             -Itflm/third_party/flatbuffers/include -Itflm/third_party/kissfft \
             -Itflm/third_party/ruy -Itflm/third_party/eyalroz_printf/src
 
-# Same defines as src/software/workload/Makefile (riscv32_generic target).
+# Same defines as src/software/Makefile (riscv32_generic target).
 DEFINES := -DTF_LITE_STATIC_MEMORY -DTF_LITE_DISABLE_X86_NEON -DNDEBUG \
            -DTF_LITE_MCU_DEBUG_LOG -DTF_LITE_USE_GLOBAL_CMATH_FUNCTIONS \
            -DTF_LITE_USE_GLOBAL_MIN -DTF_LITE_USE_GLOBAL_MAX \
@@ -134,7 +134,7 @@ fp-audit: $(BIN)
 	      /<$(SOFTFLOAT_RE)>/ && fn !~ /^$(SOFTFLOAT_RE)$$/ { print fn }' $(VBUILD)/disasm.txt \
 	  | sort -u | $(RISCV_PREFIX)c++filt | sed 's/^/  /'
 
-# spike / spike_mix: see src/software/workload/Makefile. The instruction mix
+# spike / spike_mix: see src/software/Makefile. The instruction mix
 # goes to $(RESULTS_DIR)/spike_results/dev_net_<variant>.*
 spike: $(RV64_BIN)
 	$(SPIKE) --isa=$(SPIKE_ISA) $(PK) $(RV64_BIN)
