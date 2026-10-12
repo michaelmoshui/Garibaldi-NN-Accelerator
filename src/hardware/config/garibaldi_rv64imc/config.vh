@@ -1,12 +1,12 @@
 //////////////////////////////////////////
 // config.vh — Garibaldi baseline: bare-metal RV64IMC CV-Wally
 //
-// Derived from CV-Wally config/rv64gc/config.vh (openhwfoundation/cvw).
-// Differences from rv64gc:
-//   - no F/D/Zfh/Zfa (no FPU), no A, no B/Zbc, no scalar crypto, no Zicond, no Zcb
-//   - M-mode only (no S/U), no virtual memory, no PMP, no Zicbo*
-//   - keeps Zicsr + Zicntr + Zihpm so mcycle/minstret/HPM counters are available
-//   - keeps I$/D$, branch predictor and the rv64gc uncore (RAM, UART, CLINT, ...)
+// Derived from CV-Wally config/rv64i/config.vh (openhwfoundation/cvw).
+// Differences from rv64i:
+//   - adds M + Zmmul (multiply/divide), Zca (compressed), Zifencei, Zicsr
+//   - adds Zicntr + Zihpm (mcycle/minstret + HPM event counters for profiling)
+//   - otherwise identical: M-mode only, no caches, no bus/uncore; code runs from IROM and data
+//     lives in DTIM, both at 0x80000000
 //
 // SPDX-License-Identifier: Apache-2.0 WITH SHL-2.1
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -25,10 +25,11 @@ localparam logic E_SUPPORTED = 0;
 // Integer instruction set extensions
 localparam logic ZIFENCEI_SUPPORTED = 1; // Instruction-Fetch fence
 localparam logic ZICSR_SUPPORTED    = 1; // CSR Instructions
-localparam logic ZICCLSM_SUPPORTED  = 1; // Misaligned loads/stores
+localparam logic ZICCLSM_SUPPORTED  = 0; // Misaligned loads/stores
 localparam logic ZICOND_SUPPORTED   = 0; // Integer conditional operations
 
 // Multiplication & division extensions
+// M implies (and in the configuration file requires) Zmmul
 localparam logic M_SUPPORTED     = 1;
 localparam logic ZMMUL_SUPPORTED = 1;
 
@@ -91,9 +92,9 @@ localparam logic SVINVAL_SUPPORTED = 0;
 localparam logic SVADU_SUPPORTED   = 0;
 
 // LSU microarchitectural Features
-localparam logic BUS_SUPPORTED = 1;
-localparam logic DCACHE_SUPPORTED = 1;
-localparam logic ICACHE_SUPPORTED = 1;
+localparam logic BUS_SUPPORTED = 0;
+localparam logic DCACHE_SUPPORTED = 0;
+localparam logic ICACHE_SUPPORTED = 0;
 localparam logic VECTORED_INTERRUPTS_SUPPORTED = 1;
 localparam logic BIGENDIAN_SUPPORTED = 0;
 
@@ -101,7 +102,7 @@ localparam logic BIGENDIAN_SUPPORTED = 0;
 localparam ITLB_ENTRIES = 32'd0;
 localparam DTLB_ENTRIES = 32'd0;
 
-// Cache configuration.  Sizes should be a power of two
+// Cache configuration (unused while DCACHE/ICACHE_SUPPORTED = 0). Sizes should be a power of two
 localparam DCACHE_NUMWAYS = 32'd4;
 localparam DCACHE_WAYSIZEINBYTES = 32'd4096;
 localparam DCACHE_LINELENINBITS = 32'd512;
@@ -117,7 +118,7 @@ localparam logic IDIV_ON_FPU = 0;
 
 // Legal number of PMP entries are 0, 16, or 64
 localparam PMP_ENTRIES = 32'd0;
-localparam PMP_G = 32'd4;
+localparam PMP_G = 32'b0;
 
 // Address space
 localparam logic [63:0] RESET_VECTOR = 64'h0000000080000000;
@@ -128,42 +129,42 @@ localparam WFI_TIMEOUT_BIT = 32'd16;
 // Peripheral Physical Addresses
 // Peripheral memory space extends from BASE to BASE+RANGE
 // Range should be a thermometer code with 0's in the upper bits and 1s in the lower bits
-localparam logic DTIM_SUPPORTED = 0;
+localparam logic DTIM_SUPPORTED = 1;
 localparam logic [63:0] DTIM_BASE        = 64'h80000000;
 localparam logic [63:0] DTIM_RANGE       = 64'h007FFFFF;
-localparam logic IROM_SUPPORTED = 0;
+localparam logic IROM_SUPPORTED = 1;
 localparam logic [63:0] IROM_BASE        = 64'h80000000;
 localparam logic [63:0] IROM_RANGE       = 64'h007FFFFF;
-localparam logic BOOTROM_SUPPORTED = 1;
+localparam logic BOOTROM_SUPPORTED = 0;
 localparam logic [63:0] BOOTROM_BASE     = 64'h00001000;
 localparam logic [63:0] BOOTROM_RANGE    = 64'h00000FFF;
 localparam logic BOOTROM_PRELOAD = 1'b0;
-localparam logic UNCORE_RAM_SUPPORTED = 1;
+localparam logic UNCORE_RAM_SUPPORTED = 0;
 localparam logic [63:0] UNCORE_RAM_BASE  = 64'h80000000;
 localparam logic [63:0] UNCORE_RAM_RANGE = 64'h07FFFFFF;
 localparam logic UNCORE_RAM_PRELOAD = 1'b0;
 localparam logic EXT_MEM_SUPPORTED = 0;
 localparam logic [63:0] EXT_MEM_BASE     = 64'h80000000;
 localparam logic [63:0] EXT_MEM_RANGE    = 64'h07FFFFFF;
-localparam logic CLINT_SUPPORTED = 1;
+localparam logic CLINT_SUPPORTED = 0;
 localparam logic [63:0] CLINT_BASE       = 64'h02000000;
 localparam logic [63:0] CLINT_RANGE      = 64'h0000FFFF;
-localparam logic GPIO_SUPPORTED = 1;
+localparam logic GPIO_SUPPORTED = 0;
 localparam logic [63:0] GPIO_BASE        = 64'h10060000;
 localparam logic [63:0] GPIO_RANGE       = 64'h000000FF;
-localparam logic UART_SUPPORTED = 1;
+localparam logic UART_SUPPORTED = 0;
 localparam logic [63:0] UART_BASE        = 64'h10000000;
 localparam logic [63:0] UART_RANGE       = 64'h00000007;
-localparam logic PLIC_SUPPORTED = 1;
+localparam logic PLIC_SUPPORTED = 0;
 localparam logic [63:0] PLIC_BASE        = 64'h0C000000;
 localparam logic [63:0] PLIC_RANGE       = 64'h03FFFFFF;
 localparam logic SDC_SUPPORTED = 0;
 localparam logic [63:0] SDC_BASE         = 64'h00013000;
 localparam logic [63:0] SDC_RANGE        = 64'h00000FFF;
-localparam logic SPI_SUPPORTED = 1;
+localparam logic SPI_SUPPORTED = 0;
 localparam logic [63:0] SPI_BASE         = 64'h10040000;
 localparam logic [63:0] SPI_RANGE        = 64'h00000FFF;
-localparam logic PWM_SUPPORTED = 1;
+localparam logic PWM_SUPPORTED = 0;
 localparam logic [63:0] PWM_BASE         = 64'h10020000;
 localparam logic [63:0] PWM_RANGE        = 64'h000000FF;
 
@@ -193,13 +194,13 @@ localparam PLIC_SDC_ID = 32'd9;
 localparam PLIC_PWM_ID = 32'd11; // base of a contiguous block of 4, one per PWM comparator
 
 // Branch prediction
-localparam logic BPRED_SUPPORTED = 1;
+localparam logic BPRED_SUPPORTED = 0;
 localparam BPRED_TYPE = `BP_GSHARE; // BP_GSHARE_BASIC, BP_GLOBAL, BP_GLOBAL_BASIC, BP_TWOBIT
 localparam BPRED_SIZE = 32'd10;
 localparam BPRED_NUM_LHR = 32'd6;
 localparam BTB_SIZE = 32'd10;
 localparam RAS_SIZE = 32'd16;
-localparam INSTR_CLASS_PRED = 1;
+localparam INSTR_CLASS_PRED = 0;
 
 // FPU division architecture (unused without F)
 localparam RADIX = 32'd4;

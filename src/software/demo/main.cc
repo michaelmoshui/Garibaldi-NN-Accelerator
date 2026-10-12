@@ -11,6 +11,9 @@
 #include <cstdint>
 #include <cstring>
 
+// ---------------------------------------------------------------------------
+// RISC-V performance-counter helpers (compiled out on host builds)
+// ---------------------------------------------------------------------------
 #ifdef __riscv
 static inline uint64_t rv_rdcycle(void) {
   uint64_t v;
@@ -64,6 +67,7 @@ void TopK(const int8_t* logits, int n, int* top) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  // Model setup
   tflite::InitializeTarget();
 
   const tflite::Model* model =
@@ -74,6 +78,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  // Interpreter setup
   tflite::MicroMutableOpResolver<kNumberOperators> resolver = get_resolver();
   tflite::MicroInterpreter interpreter(model, resolver, g_tensor_arena,
                                        sizeof(g_tensor_arena));
@@ -82,6 +87,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  // I/O sanity check
   TfLiteTensor* input = interpreter.input(0);
   TfLiteTensor* output = interpreter.output(0);
   if (input->type != kTfLiteInt8 || output->type != kTfLiteInt8 ||
@@ -101,19 +107,23 @@ int main(int argc, char** argv) {
   int ref_mismatches = 0;
   for (int n = 0; n < count; ++n) {
     const DemoImage& img = g_demo_images[n];
+    // Copies the nth image to the input tensor
     std::memcpy(input->data.int8, img.pixels, input->bytes);
 
+    // Runs the inference — bracket with CSR reads on RV64 for baseline profiling
 #ifdef __riscv
-    const uint64_t cycle_start = rv_rdcycle();
+    const uint64_t cycle_start   = rv_rdcycle();
     const uint64_t instret_start = rv_rdinstret();
 #endif
+
     if (interpreter.Invoke() != kTfLiteOk) {
       MicroPrintf("Invoke() failed");
       return 1;
     }
+
 #ifdef __riscv
-    const uint64_t cycles = rv_rdcycle() - cycle_start;
-    const uint64_t instret = rv_rdinstret() - instret_start;
+    const uint64_t cycle_end   = rv_rdcycle();
+    const uint64_t instret_end = rv_rdinstret();
 #endif
 
     const int8_t* logits = output->data.int8;
@@ -147,8 +157,9 @@ int main(int argc, char** argv) {
                 hit1 ? "top-1 HIT" : (hit5 ? "top-5 hit" : "MISS"),
                 ref_ok ? "match" : "MISMATCH", max_abs_diff);
 #ifdef __riscv
-    MicroPrintf("        cycles %lld, instret %lld", (long long)cycles,
-                (long long)instret);
+    MicroPrintf("        cycles %lld, instret %lld",
+                (long long)(cycle_end - cycle_start),
+                (long long)(instret_end - instret_start));
 #endif
     MicroPrintf("");
   }

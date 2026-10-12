@@ -95,8 +95,6 @@ int main() {
 #ifdef __riscv
   const uint64_t cycle_end   = rv_rdcycle();
   const uint64_t instret_end = rv_rdinstret();
-  MicroPrintf("invoke cycles:  %lld", (long long)(cycle_end   - cycle_start));
-  MicroPrintf("invoke instret: %lld", (long long)(instret_end - instret_start));
 #endif
 
   // Compare results

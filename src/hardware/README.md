@@ -40,9 +40,11 @@ changes never go into `cvw/`. New modules go in `rtl/`. To change an upstream fi
 `rtl/overrides/` and edit the copy. The Makefile drops the upstream file with the same name and
 compiles yours. See [rtl/overrides/README.md](rtl/overrides/README.md).
 
-**Config.** `CONFIG=garibaldi_rv64imc` is the default. It's upstream `rv64gc` with the FPU, A, B,
-crypto, S/U modes, virtual memory, and PMP removed. Caches, the branch predictor, and the
-performance counters stay on. Any upstream config also works, for example `make sim CONFIG=rv64gc`.
+**Config.** `CONFIG=garibaldi_rv64imc` is the default. It's upstream `rv64i` plus M/Zmmul, Zca,
+Zifencei, Zicsr, and the performance counters (Zicntr/Zihpm). Like `rv64i` it has no caches, bus,
+or uncore: code runs from IROM and data lives in DTIM (both 8 MB at `0x80000000`, single-cycle).
+The branch predictor and the UART are off, so programs can't print; results come from the HPM
+counter dump and the `tohost` exit code. Any upstream config also works, for example `make sim CONFIG=rv64gc`.
 
 **Simulation.** `make sim` Verilates CV-Wally's own `testbench.sv` with `PrintHPMCounters=1`, so
 every run prints cycles, instret, branch mispredicts, cache misses, and stalls. `make run ELF=x.elf`

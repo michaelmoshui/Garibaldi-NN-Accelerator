@@ -57,7 +57,7 @@ DEV_SENTINEL       := $(DEV_DIR)/.dev_workload_done
 .PHONY: all setup fetch inspect workload test_data workload_run compile compile_demo compile_dev \
         get_spike spike_run spike_mix baseline_report \
         demo_data demo_run demo_spike demo_spike_mix \
-        dev_workload dev_run dev_spike dev_spike_mix dev_inspect \
+        dev_workload dev_run dev_spike dev_spike_mix dev_inspect compile_dev_cvw dev_cvw_run \
         get_hw_tools hw_setup hw_lint hw_sim clean help
 
 ## Default: run the shared workload pipeline end-to-end (workload + test_data)
@@ -226,6 +226,14 @@ dev_spike_mix: $(DEV_SENTINEL)
 dev_inspect: $(DEV_SENTINEL)
 	$(VENV_PYTHON) scripts/result_extraction/inspect_tflite.py --model $(DEV_MODEL)
 
+## Print-free bare-metal ELF for the CV-Wally testbench (software_dev CONFIG=cvw)
+compile_dev_cvw: $(DEV_SENTINEL)
+	$(MAKE) -C $(DEV_DIR) all CONFIG=cvw
+
+## Run dev_net on the CV-Wally Verilator model: self-check + HPM counters
+dev_cvw_run: $(DEV_SENTINEL)
+	$(MAKE) -C $(DEV_DIR) cvw_run
+
 # ---------------------------------------------------------------------------
 # 10. Hardware: CV-Wally RTL + project RTL on Verilator (see src/hardware/README.md)
 # ---------------------------------------------------------------------------
@@ -284,6 +292,8 @@ help:
 	@echo "  make dev_spike     — per-op cycles/instret under Spike"
 	@echo "  make dev_spike_mix — dynamic instruction mix -> results/spike_results/"
 	@echo "  make dev_inspect   — model structure report"
+	@echo "  make compile_dev_cvw — print-free bare-metal ELF for the CV-Wally testbench"
+	@echo "  make dev_cvw_run   — run on the CV-Wally Verilator model (self-check + HPM counters)"
 	@echo "      [CUSTOM_KERNELS=\"CONV_2D ...\" (default CONV_2D; empty = reference)]"
 	@echo ""
 	@echo "  === Hardware ==="

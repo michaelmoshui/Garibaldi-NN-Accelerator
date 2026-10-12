@@ -9,6 +9,11 @@
 #                         F/D/A instruction count + soft-float call sites
 #   make spike            build RV64 ELF + run under Spike (per-op cycles/instret)
 #   make spike_mix        build RV64 ELF + dynamic instruction mix (Spike -g)
+#   make CONFIG=cvw       bare-metal ELF for the CV-Wally testbench (cvw/crt.S +
+#                         cvw/link.ld at 0x80000000, no printing)
+#   make cvw_run          build the CONFIG=cvw ELF + run it on the Verilator
+#                         model (../hardware); the testbench reports the
+#                         self-check and HPM counters [SIM_ARGS=...]
 #
 #   CUSTOM_KERNELS="CONV_2D"   (default) ops served by kernels/*.cc
 #   CUSTOM_KERNELS=            all-TFLM-reference baseline
@@ -33,6 +38,8 @@ PK         ?= pk
 SPIKE_ISA  ?= rv64imac_zicsr_zifencei_zicntr
 PYTHON3     ?= python3
 RESULTS_DIR ?= ../../results
+HW_DIR      ?= ../hardware
+SIM_ARGS    ?=
 
 APP_NAME := dev_net
 empty    :=
@@ -43,10 +50,15 @@ VARIANT  := $(if $(KERNELS),custom_$(subst $(space),_,$(KERNELS)),ref)
 BUILD      := build/$(CONFIG)
 VBUILD     := $(BUILD)/$(VARIANT)
 RV64_BIN   := build/rv64/$(VARIANT)/$(APP_NAME).elf
+CVW_BIN    := build/cvw/$(VARIANT)/$(APP_NAME).elf
 MIX_PREFIX := build/rv64/$(VARIANT)/$(APP_NAME)
 
 RUNTIME_SRCS := $(wildcard model/*.cc) $(shell find tflm -name '*.cc' -o -name '*.c')
 APP_SRCS     := main.cc $(wildcard kernels/*.cc) $(wildcard test_data/*.cc)
+ifeq ($(CONFIG),cvw)
+  APP_SRCS     += cvw/crt.S cvw/debug_log.cc
+  RUNTIME_SRCS := $(filter-out tflm/tensorflow/lite/micro/riscv32_generic/debug_log.cc,$(RUNTIME_SRCS))
+endif
 
 INCLUDES := -I. -Itflm -Itflm/third_party -Itflm/third_party/gemmlowp \
             -Itflm/third_party/flatbuffers/include -Itflm/third_party/kissfft \
@@ -80,6 +92,16 @@ ifeq ($(CONFIG),rv64)
   LDFLAGS    := -march=rv64imac -mabi=lp64 -mcmodel=medany --specs=nano.specs \
                 -mno-relax -Wl,--gc-sections
   EXE        := .elf
+else ifeq ($(CONFIG),cvw)
+  CXX        := $(RISCV_PREFIX)g++
+  CC         := $(RISCV_PREFIX)gcc
+  OBJDUMP    := $(RISCV_PREFIX)objdump
+  ARCH_FLAGS := -march=rv64imc -mabi=lp64 -mcmodel=medany -mexplicit-relocs
+  CXXFLAGS   += -fpermissive -fno-use-cxa-atexit
+  # Same newlib as rv64; cvw/crt.S replaces crt0 and there are no syscalls.
+  LDFLAGS    := -march=rv64imac -mabi=lp64 -mcmodel=medany --specs=nano.specs \
+                -nostartfiles -T cvw/link.ld -mno-relax -Wl,--gc-sections
+  EXE        := .elf
 else
   CXX        := g++
   CC         := gcc
@@ -95,13 +117,17 @@ BIN          := $(VBUILD)/$(APP_NAME)$(EXE)
 
 SOFTFLOAT_RE := __((add|sub|mul|div|neg)[sd]f3|float(un)?[sdt]i[sd]f|fix(uns)?[sd]f[sdt]i|extendsfdf2|truncdfsf2|(eq|ne|lt|le|gt|ge|unord)[sd]f2)
 
-.PHONY: all run fp-audit spike spike_mix clean
+.PHONY: all run fp-audit spike spike_mix cvw_run clean
 
 all: $(BIN)
 
 $(VBUILD)/%.cc.o: %.cc
 	@mkdir -p $(@D)
 	$(CXX) $(ARCH_FLAGS) $(CXXFLAGS) $(APP_DEFINES) -c $< -o $@
+
+$(VBUILD)/%.S.o: %.S
+	@mkdir -p $(@D)
+	$(CC) $(ARCH_FLAGS) -c $< -o $@
 
 $(BUILD)/%.cc.o: %.cc
 	@mkdir -p $(@D)
@@ -111,8 +137,8 @@ $(BUILD)/%.c.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(ARCH_FLAGS) $(CFLAGS) -c $< -o $@
 
-$(BIN): $(APP_OBJS) $(RUNTIME_OBJS)
-	$(CXX) $(ARCH_FLAGS) $^ $(LDFLAGS) -lm -o $@
+$(BIN): $(APP_OBJS) $(RUNTIME_OBJS) $(if $(filter cvw,$(CONFIG)),cvw/link.ld)
+	$(CXX) $(ARCH_FLAGS) $(filter %.o,$^) $(LDFLAGS) -lm -o $@
 
 -include $(APP_OBJS:.o=.d) $(RUNTIME_OBJS:.o=.d)
 
@@ -156,6 +182,12 @@ ifneq ($(CONFIG),rv64)
 $(RV64_BIN):
 	$(MAKE) CONFIG=rv64 CUSTOM_KERNELS="$(KERNELS)"
 endif
+
+# CV-Wally RTL run: see ../hardware/README.md. `make run` there generates the
+# .memfile/.objdump.addr sidecars next to the ELF and runs Vtestbench.
+cvw_run:
+	$(MAKE) CONFIG=cvw CUSTOM_KERNELS="$(KERNELS)"
+	$(MAKE) -C $(HW_DIR) run ELF=$(abspath $(CVW_BIN)) SIM_ARGS="$(SIM_ARGS)"
 
 clean:
 	rm -rf build
