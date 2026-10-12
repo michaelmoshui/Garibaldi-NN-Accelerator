@@ -8,7 +8,7 @@ mean/std, NCHW), quantizes them with the model's input scale / zero point and
 runs them through LiteRT's BUILTIN_REF kernels to get reference int8 logits.
 
 This script is demo-app-exclusive.  The shared TFLM runtime + model CC array
-must be generated first (scripts/ml_workload/gen_tflm_workload.py / make workload).
+must be generated first (scripts/ml_workload/gen_tflm_workload.py / make model_workload).
 Random golden test vectors for the test app live in gen_test_data.py.
 
 Outputs (all under --out, default src/software/demo):

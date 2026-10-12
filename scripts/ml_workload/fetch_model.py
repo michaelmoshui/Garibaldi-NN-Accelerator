@@ -61,7 +61,7 @@ def main() -> None:
     print("\n[note] Model is W8A8 INT8:")
     print("         weights      — signed INT8, symmetric per-channel")
     print("         activations  — signed INT8, asymmetric (non-zero zero-points)")
-    print("       Run 'make inspect' to view the op inventory and tensor layout.")
+    print("       Run 'make model_inspect' to view the op inventory and tensor layout.")
 
 
 if __name__ == "__main__":

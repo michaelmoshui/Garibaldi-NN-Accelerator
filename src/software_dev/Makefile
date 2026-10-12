@@ -7,8 +7,8 @@
 #   make CONFIG=rv64      bare-metal RV64IMC ELF (lp64 soft-float ABI)
 #   make CONFIG=rv64 fp-audit
 #                         F/D/A instruction count + soft-float call sites
-#   make spike            build RV64 ELF + run under Spike (per-op cycles/instret)
-#   make spike_mix        build RV64 ELF + dynamic instruction mix (Spike -g)
+#   make spike            build RV64 ELF + run under Spike (-g): per-op
+#                         cycles/instret + dynamic instruction mix
 #   make CONFIG=cvw       bare-metal ELF for the CV-Wally testbench (cvw/crt.S +
 #                         cvw/link.ld at 0x80000000, no printing)
 #   make cvw_run          build the CONFIG=cvw ELF + run it on the Verilator
@@ -117,7 +117,7 @@ BIN          := $(VBUILD)/$(APP_NAME)$(EXE)
 
 SOFTFLOAT_RE := __((add|sub|mul|div|neg)[sd]f3|float(un)?[sdt]i[sd]f|fix(uns)?[sd]f[sdt]i|extendsfdf2|truncdfsf2|(eq|ne|lt|le|gt|ge|unord)[sd]f2)
 
-.PHONY: all run fp-audit spike spike_mix cvw_run clean
+.PHONY: all run fp-audit spike cvw_run clean
 
 all: $(BIN)
 
@@ -160,13 +160,10 @@ fp-audit: $(BIN)
 	      /<$(SOFTFLOAT_RE)>/ && fn !~ /^$(SOFTFLOAT_RE)$$/ { print fn }' $(VBUILD)/disasm.txt \
 	  | sort -u | $(RISCV_PREFIX)c++filt | sed 's/^/  /'
 
-# spike / spike_mix: see src/software/Makefile. The instruction mix
+# spike: see src/software/Makefile. The instruction mix
 # goes to $(RESULTS_DIR)/spike_results/dev_net_<variant>.*
 spike: $(RV64_BIN)
-	$(SPIKE) --isa=$(SPIKE_ISA) $(PK) $(RV64_BIN)
-
-spike_mix: $(RV64_BIN)
-	@echo "[spike_mix] Running under Spike with the PC histogram enabled (-g)..."
+	@echo "[spike] Running under Spike with the PC histogram enabled (-g)..."
 	-$(SPIKE) -g --isa=$(SPIKE_ISA) $(PK) $(RV64_BIN) \
 	    > $(MIX_PREFIX).stdout.txt 2> $(MIX_PREFIX).pc_hist.txt
 	@cat $(MIX_PREFIX).stdout.txt

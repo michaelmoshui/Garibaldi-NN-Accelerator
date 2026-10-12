@@ -7,8 +7,7 @@
 #   make CONFIG=rv64      bare-metal RV64IMC ELF (lp64 soft-float ABI)
 #   make CONFIG=rv64 fp-audit
 #                         F/D/A instruction count + soft-float call sites
-#   make spike            build RV64 ELF + run under Spike ISA simulator
-#   make spike_mix        build RV64 ELF + dynamic instruction mix (Spike -g)
+#   make spike            build RV64 ELF + dynamic instruction mix (Spike -g)
 #
 #   APP=test (default)    golden-vector check: test/main.cc + test/test_data/
 #   APP=demo              ImageNet photo demo: demo/main.cc + demo/demo_data/
@@ -111,7 +110,7 @@ BIN   := $(BUILD)/$(APP_NAME)$(EXE)
 
 SOFTFLOAT_RE := __((add|sub|mul|div|neg)[sd]f3|float(un)?[sdt]i[sd]f|fix(uns)?[sd]f[sdt]i|extendsfdf2|truncdfsf2|(eq|ne|lt|le|gt|ge|unord)[sd]f2)
 
-.PHONY: all run fp-audit spike spike_mix clean
+.PHONY: all run fp-audit spike clean
 
 all: $(BIN)
 
@@ -153,20 +152,17 @@ fp-audit: $(BIN)
 #   Prerequisites: spike and pk must be on PATH (see: make get_spike at the
 #   top level, or run scripts/tool_installation/install_spike.sh in WSL).
 #
-#   spike      — build RV64 ELF then run one inference; prints cycle + instret
-#                counts from the CSR reads embedded in the app's main.cc
-#   spike_mix  — same run with Spike's per-PC retire counter (-g), joined with
-#                the ELF disassembly into a dynamic instruction mix (per
-#                mnemonic / class / function / hot basic block) under
-#                $(RESULTS_DIR)/spike_results/. Do not use --log-commits for the
-#                full model: ~20 G instructions is ~1.3 TB of commit log.
+#   spike  — build RV64 ELF then run one inference with Spike's per-PC retire
+#            counter (-g); prints the cycle + instret counts from the CSR reads
+#            embedded in the app's main.cc, and joins the histogram with the
+#            ELF disassembly into a dynamic instruction mix (per mnemonic /
+#            class / function / hot basic block) under
+#            $(RESULTS_DIR)/spike_results/. Do not use --log-commits for the
+#            full model: ~20 G instructions is ~1.3 TB of commit log.
 # ---------------------------------------------------------------------------
 spike: $(RV64_BIN)
-	$(SPIKE) --isa=$(SPIKE_ISA) $(PK) $(RV64_BIN) $(RUN_ARGS)
-
-spike_mix: $(RV64_BIN)
 	@mkdir -p $(BUILD_ROOT)/rv64
-	@echo "[spike_mix] Running under Spike with the PC histogram enabled (-g)..."
+	@echo "[spike] Running under Spike with the PC histogram enabled (-g)..."
 	-$(SPIKE) -g --isa=$(SPIKE_ISA) $(PK) $(RV64_BIN) $(RUN_ARGS) \
 	    > $(MIX_PREFIX).stdout.txt 2> $(MIX_PREFIX).pc_hist.txt
 	@cat $(MIX_PREFIX).stdout.txt
@@ -176,7 +172,7 @@ spike_mix: $(RV64_BIN)
 	    --disasm $(MIX_PREFIX).disasm.txt --spike-out $(MIX_PREFIX).stdout.txt \
 	    --out $(RESULTS_DIR)/spike_results/$(APP_NAME)
 
-# Explicit rule so 'make spike' and 'make spike_mix' can force CONFIG=rv64.
+# Explicit rule so 'make spike' can force CONFIG=rv64.
 # Guard: when CONFIG is already rv64, $(BIN)==$(RV64_BIN) and the compile rule
 # above ($(BIN): $(OBJS)) is sufficient — adding a second recipe here causes
 # an infinite recursive $(MAKE) CONFIG=rv64 loop.

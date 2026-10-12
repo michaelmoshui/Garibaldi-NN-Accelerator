@@ -54,14 +54,11 @@ DEV_SENTINEL       := $(DEV_DIR)/.dev_workload_done
 # ---------------------------------------------------------------------------
 # Phony targets
 # ---------------------------------------------------------------------------
-.PHONY: all setup fetch inspect workload test_data workload_run compile compile_demo compile_dev \
-        get_spike spike_run spike_mix baseline_report \
-        demo_data demo_run demo_spike demo_spike_mix \
-        dev_workload dev_run dev_spike dev_spike_mix dev_inspect compile_dev_cvw dev_cvw_run \
+.PHONY: setup fetch_model model_inspect model_workload test_data test_run test_compile test_spike \
+        get_spike baseline_report \
+        demo_data demo_run demo_compile demo_spike \
+        dev_workload dev_run dev_compile dev_spike dev_inspect dev_cvw_compile dev_cvw_run \
         get_hw_tools hw_setup hw_lint hw_sim clean help
-
-## Default: run the shared workload pipeline end-to-end (workload + test_data)
-all: workload test_data
 
 # ---------------------------------------------------------------------------
 # 1. Set up Python virtual environment
@@ -80,18 +77,18 @@ $(SETUP_SENTINEL): $(REQS)
 # ---------------------------------------------------------------------------
 # 2. Download the pre-quantized TFLite model from HuggingFace
 # ---------------------------------------------------------------------------
-fetch: $(MODEL_OUT)
+fetch_model: $(MODEL_OUT)
 
 $(MODEL_OUT): $(SETUP_SENTINEL) scripts/ml_workload/fetch_model.py
-	@echo "[fetch] Downloading resnet18_int8_channelwise.tflite from HuggingFace..."
+	@echo "[fetch_model] Downloading resnet18_int8_channelwise.tflite from HuggingFace..."
 	$(VENV_PYTHON) scripts/ml_workload/fetch_model.py
 	@echo "[ok] Model ready at $(MODEL_OUT)."
 
 # ---------------------------------------------------------------------------
 # 3. (Optional) Inspect the TFLite model — op inventory + tensor summary
 # ---------------------------------------------------------------------------
-inspect: $(MODEL_OUT) $(SETUP_SENTINEL)
-	@echo "[inspect] Printing op inventory and tensor summary..."
+model_inspect: $(MODEL_OUT) $(SETUP_SENTINEL)
+	@echo "[model_inspect] Printing op inventory and tensor summary..."
 	$(VENV_PYTHON) scripts/result_extraction/inspect_tflite.py --model $(MODEL_OUT)
 
 # ---------------------------------------------------------------------------
@@ -101,10 +98,10 @@ inspect: $(MODEL_OUT) $(SETUP_SENTINEL)
 #    is produced here (see test_data and demo_data targets below).
 #    Linux / WSL only.
 # ---------------------------------------------------------------------------
-workload: $(WORKLOAD_SENTINEL)
+model_workload: $(WORKLOAD_SENTINEL)
 
 $(WORKLOAD_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/ml_workload/gen_tflm_workload.py
-	@echo "[workload] Generating shared LiteRT Micro runtime from $(MODEL_OUT)..."
+	@echo "[model_workload] Generating shared LiteRT Micro runtime from $(MODEL_OUT)..."
 	$(VENV_PYTHON) scripts/ml_workload/gen_tflm_workload.py \
 	    --model $(MODEL_OUT) --out $(WORKLOAD_DIR)
 	@echo "workload done" > $(WORKLOAD_SENTINEL)
@@ -124,25 +121,25 @@ $(TEST_DATA_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/ml_workload/gen_te
 	@echo "[ok] Golden vectors written to $(TEST_DIR)/test_data/."
 
 ## Native build + bit-exact check against the LiteRT reference output
-workload_run: $(WORKLOAD_SENTINEL) $(TEST_DATA_SENTINEL)
+test_run: $(WORKLOAD_SENTINEL) $(TEST_DATA_SENTINEL)
 	$(MAKE) -C $(SW_DIR) APP=test run
 
 # ---------------------------------------------------------------------------
 # 6. Compile the golden-vector test to a bare-metal RV64IMC ELF
 #    Uses the RISC-V toolchain bundled inside the tflite-micro checkout.
 #    Output: src/software/build/rv64/resnet18_test.elf
-#    Note: compile_dev is the equivalent for the software_dev workload.
+#    Note: dev_compile is the equivalent for the software_dev workload.
 # ---------------------------------------------------------------------------
 ## Compile the TFLM test program to a bare-metal RV64IMC ELF (for Spike / CV-Wally)
-compile: $(WORKLOAD_SENTINEL) $(TEST_DATA_SENTINEL)
+test_compile: $(WORKLOAD_SENTINEL) $(TEST_DATA_SENTINEL)
 	$(MAKE) -C $(SW_DIR) APP=test all CONFIG=rv64
 
 ## Compile the demo program to a bare-metal RV64IMC ELF
-compile_demo: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
+demo_compile: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
 	$(MAKE) -C $(SW_DIR) APP=demo all CONFIG=rv64
 
 ## Compile the software_dev program to a bare-metal RV64IMC ELF
-compile_dev: $(DEV_SENTINEL)
+dev_compile: $(DEV_SENTINEL)
 	$(MAKE) -C $(DEV_DIR) all CONFIG=rv64
 
 # ---------------------------------------------------------------------------
@@ -152,21 +149,17 @@ compile_dev: $(DEV_SENTINEL)
 get_spike:
 	bash scripts/tool_installation/install_spike.sh
 
-## Build the RV64 ELF and run one inference under Spike (prints cycles + instret)
-spike_run: compile
+## Dynamic instruction mix (Spike -g PC histogram + disassembly) -> results/spike_results/
+test_spike: test_compile
 	$(MAKE) -C $(SW_DIR) APP=test spike SPIKE=$(SPIKE) PK=$(PK)
 
-## Dynamic instruction mix (Spike -g PC histogram + disassembly) -> results/spike_results/
-spike_mix: compile
-	$(MAKE) -C $(SW_DIR) APP=test spike_mix SPIKE=$(SPIKE) PK=$(PK)
-
-## Baseline Workload Analysis report from existing spike_mix + inspect results
-baseline_report:
+## Baseline Workload Analysis report from the test_spike + model_inspect results
+baseline_report: test_spike model_inspect
 	$(PYTHON) scripts/result_extraction/gen_baseline_report.py
 
 # ---------------------------------------------------------------------------
 # 8. Demo: classify 20 real ImageNet photos (vs. the random golden vector
-#    used by workload_run / spike_run during development).
+#    used by test_run / test_spike during development).
 #    demo_data is demo-app-exclusive; it is NOT triggered by the test or dev
 #    pipelines, keeping the random test data and real photo data independent.
 # ---------------------------------------------------------------------------
@@ -184,20 +177,16 @@ $(DEMO_SENTINEL): $(MODEL_OUT) $(SETUP_SENTINEL) scripts/ml_workload/gen_demo_da
 demo_run: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
 	$(MAKE) -C $(SW_DIR) APP=demo run N=$(N)
 
-## Run one photo inference on bare-metal RV64 ELF under Spike (cycles + instret); use N= for more
+## Dynamic instruction mix for the demo (Spike -g) -> results/spike_results/resnet18_demo.*
 demo_spike: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
 	$(MAKE) -C $(SW_DIR) APP=demo spike N=$(or $(N),1) SPIKE=$(SPIKE) PK=$(PK)
-
-## Dynamic instruction mix for the demo (Spike -g) -> results/spike_results/resnet18_demo.*
-demo_spike_mix: $(WORKLOAD_SENTINEL) $(DEMO_SENTINEL)
-	$(MAKE) -C $(SW_DIR) APP=demo spike_mix N=$(or $(N),1) SPIKE=$(SPIKE) PK=$(PK)
 
 # ---------------------------------------------------------------------------
 # 9. software_dev: kernel-development workload (dev_net, one instance of
 #    each resnet18 op type, ~1.8 MMAC). Custom kernels live in
 #    src/software_dev/kernels/; choose them with CUSTOM_KERNELS="CONV_2D ..."
 #    (default CONV_2D, empty = all TFLM reference kernels).
-#    dev_run is the software_dev equivalent of workload_run; both run the
+#    dev_run is the software_dev equivalent of test_run; both run the
 #    workload natively and check outputs against LiteRT reference.
 # ---------------------------------------------------------------------------
 ## Build dev_net + TFLM runtime + per-op LiteRT golden outputs
@@ -214,20 +203,16 @@ $(DEV_SENTINEL): $(SETUP_SENTINEL) scripts/ml_workload/gen_dev_workload.py \
 dev_run: $(DEV_SENTINEL)
 	$(MAKE) -C $(DEV_DIR) run
 
-## RV64 ELF under Spike: per-op cycles/instret + per-op check
+## Dynamic instruction mix -> results/spike_results/dev_net_<variant>.*
 dev_spike: $(DEV_SENTINEL)
 	$(MAKE) -C $(DEV_DIR) spike SPIKE=$(SPIKE) PK=$(PK)
-
-## Dynamic instruction mix -> results/spike_results/dev_net_<variant>.*
-dev_spike_mix: $(DEV_SENTINEL)
-	$(MAKE) -C $(DEV_DIR) spike_mix SPIKE=$(SPIKE) PK=$(PK)
 
 ## Model structure report -> results/model_structure/dev_net_int8.md
 dev_inspect: $(DEV_SENTINEL)
 	$(VENV_PYTHON) scripts/result_extraction/inspect_tflite.py --model $(DEV_MODEL)
 
 ## Print-free bare-metal ELF for the CV-Wally testbench (software_dev CONFIG=cvw)
-compile_dev_cvw: $(DEV_SENTINEL)
+dev_cvw_compile: $(DEV_SENTINEL)
 	$(MAKE) -C $(DEV_DIR) all CONFIG=cvw
 
 ## Run dev_net on the CV-Wally Verilator model: self-check + HPM counters
@@ -263,36 +248,35 @@ help:
 	@echo ""
 	@echo "  === Setup & Installation ==="
 	@echo "  make setup      — create .venv and install requirements"
-	@echo "  make fetch      — download resnet18_int8_channelwise.tflite from HuggingFace"
-	@echo "  make inspect    — print op inventory + tensor summary (optional)"
+	@echo "  make fetch_model   — download resnet18_int8_channelwise.tflite from HuggingFace"
+	@echo "  make model_inspect — print ResNet-18 op inventory + tensor summary (optional)"
 	@echo "  make get_spike  — build Spike + pk from source (WSL/Linux)"
 	@echo "  make get_hw_tools  — hardware: Verilator 5.036, Verible, uv, GTKWave (WSL)"
 	@echo "  make hw_setup      — hardware: clone CV-Wally (pinned) into src/hardware/cvw"
 	@echo ""
-	@echo "  === Test Workload Pipeline ==="
-	@echo "  make workload      — export shared TFLM runtime + model CC array + op resolver"
+	@echo "  === Shared ResNet-18 Workload (test + demo) ==="
+	@echo "  make model_workload — export shared TFLM runtime + model CC array + op resolver"
+	@echo ""
+	@echo "  === Test Pipeline ==="
 	@echo "  make test_data     — generate random golden test vectors (test-app-exclusive)"
-	@echo "  make workload_run  — native build + bit-exact check against LiteRT"
-	@echo "  make compile       — cross-compile test app to bare-metal RV64IMC ELF"
-	@echo "  make spike_run     — run the RV64 ELF under Spike (cycles + instret)"
-	@echo "  make spike_mix     — dynamic instruction mix -> results/spike_results/"
+	@echo "  make test_run      — native build + bit-exact check against LiteRT"
+	@echo "  make test_compile  — cross-compile test app to bare-metal RV64IMC ELF"
+	@echo "  make test_spike    — Spike run + dynamic instruction mix -> results/spike_results/"
 	@echo "  make baseline_report — Baseline Workload Analysis -> results/baseline_workload_analysis.md"
 	@echo ""
 	@echo "  === Demo Pipeline ==="
 	@echo "  make demo_data      — fetch 20 ImageNet photos + LiteRT reference logits"
 	@echo "  make demo_run       — native build + classify the photos [N=count]"
-	@echo "  make compile_demo   — cross-compile demo app to bare-metal RV64IMC ELF"
-	@echo "  make demo_spike     — 1-photo inference under Spike (cycles + instret) [N=count]"
-	@echo "  make demo_spike_mix — dynamic instruction mix -> results/spike_results/ [N=count]"
+	@echo "  make demo_compile   — cross-compile demo app to bare-metal RV64IMC ELF"
+	@echo "  make demo_spike     — Spike run + dynamic instruction mix -> results/spike_results/ [N=count]"
 	@echo ""
 	@echo "  === software_dev Pipeline ==="
 	@echo "  make dev_workload  — generate dev_net + golden outputs"
 	@echo "  make dev_run       — native build + per-op check against LiteRT"
-	@echo "  make compile_dev   — cross-compile dev workload to bare-metal RV64IMC ELF"
-	@echo "  make dev_spike     — per-op cycles/instret under Spike"
-	@echo "  make dev_spike_mix — dynamic instruction mix -> results/spike_results/"
+	@echo "  make dev_compile   — cross-compile dev workload to bare-metal RV64IMC ELF"
+	@echo "  make dev_spike     — Spike run + dynamic instruction mix -> results/spike_results/"
 	@echo "  make dev_inspect   — model structure report"
-	@echo "  make compile_dev_cvw — print-free bare-metal ELF for the CV-Wally testbench"
+	@echo "  make dev_cvw_compile — print-free bare-metal ELF for the CV-Wally testbench"
 	@echo "  make dev_cvw_run   — run on the CV-Wally Verilator model (self-check + HPM counters)"
 	@echo "      [CUSTOM_KERNELS=\"CONV_2D ...\" (default CONV_2D; empty = reference)]"
 	@echo ""
@@ -300,8 +284,7 @@ help:
 	@echo "  make hw_lint       — Verilator + Verible lint"
 	@echo "  make hw_sim        — build the CV-Wally Verilator model"
 	@echo ""
-	@echo "  make all        — workload + test_data (shared runtime + golden vectors)"
-	@echo "  make clean      — remove venv, model outputs, generated workload"
+	@echo "  make clean      — git clean -fdx: deletes ALL untracked files"
 	@echo ""
 	@echo "  Model: litert-community/resnet18 / resnet18_int8_channelwise.tflite"
 	@echo "         W8A8: weights INT8 per-channel symmetric,"

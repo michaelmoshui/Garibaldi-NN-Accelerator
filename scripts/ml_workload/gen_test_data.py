@@ -6,7 +6,7 @@ bit-exact reference outputs for a random int8 input.  The outputs land in
 src/software/test/test_data/ and are compiled directly into the test binary.
 
 This script is test-app-exclusive.  The shared TFLM runtime + model CC array
-must be generated first (scripts/ml_workload/gen_tflm_workload.py / make workload).
+must be generated first (scripts/ml_workload/gen_tflm_workload.py / make model_workload).
 Demo-specific data (real ImageNet photos) lives in gen_demo_data.py.
 
 Requires Linux / WSL (uses the TFLM Python tools from the tflite-micro checkout).
